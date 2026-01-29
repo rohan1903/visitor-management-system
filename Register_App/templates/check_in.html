@@ -1,0 +1,605 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check-In Portal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a0ca3;
+            --primary-light: #4895ef;
+            --success: #38b000;
+            --warning: #ff9e00;
+            --error: #ef233c;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --gray: #6c757d;
+            --light-gray: #e9ecef;
+            --border-radius: 16px;
+            --border-radius-sm: 12px;
+            --box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f3f5ff 0%, #edf0ff 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            overflow: hidden;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(25px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2rem;
+            margin-bottom: 8px;
+            font-weight: 700;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 1rem;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .alert {
+            padding: 16px;
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            font-size: 0.95rem;
+        }
+
+        .alert-success {
+            background: rgba(56, 176, 0, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .alert-error {
+            background: rgba(239, 35, 60, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        .alert i {
+            margin-right: 12px;
+            font-size: 1.2rem;
+        }
+
+        .visitor-card {
+            background: white;
+            border-radius: var(--border-radius-sm);
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+            padding: 25px;
+            margin-bottom: 25px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .visitor-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid var(--light-gray);
+        }
+
+        .visitor-photo {
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-right: 15px;
+            border: 3px solid var(--primary-light);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .visitor-details h3 {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: var(--dark);
+            margin-bottom: 5px;
+        }
+
+        .visitor-details p {
+            color: var(--gray);
+            font-size: 0.95rem;
+        }
+
+        .visit-info {
+            background: var(--light);
+            border-radius: var(--border-radius-sm);
+            padding: 20px;
+            margin-bottom: 25px;
+        }
+
+        .info-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: var(--primary-dark);
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+
+        .info-title i {
+            margin-right: 10px;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px dashed var(--light-gray);
+        }
+
+        .info-label {
+            color: var(--gray);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .info-value {
+            color: var(--dark);
+            font-weight: 600;
+            font-size: 0.9rem;
+            text-align: right;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .status-registered { 
+            background: rgba(67, 97, 238, 0.1); 
+            color: var(--primary); 
+        }
+
+        .warning-box {
+            background: rgba(255, 158, 0, 0.08);
+            border: 1px solid var(--warning);
+            color: var(--warning);
+            padding: 16px;
+            border-radius: var(--border-radius-sm);
+            margin-bottom: 25px;
+            font-weight: 600;
+            text-align: center;
+            font-size: 0.95rem;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            padding: 16px 25px;
+            font-size: 1rem;
+            font-weight: 600;
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+            text-decoration: none;
+            margin-bottom: 15px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn i {
+            margin-right: 10px;
+        }
+
+        .btn-secondary {
+            background: var(--light-gray);
+            color: var(--dark);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: var(--gray);
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                max-width: 100%;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .header h1 {
+                font-size: 1.7rem;
+            }
+            
+            .visitor-header {
+                flex-direction: column;
+                text-align: center;
+            }
+            
+            .visitor-photo {
+                margin-right: 0;
+                margin-bottom: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+
+        <div class="header">
+            <h1><i class="fas fa-door-open"></i> Check-In Portal</h1>
+            <p>Complete your visit with facial verification</p>
+        </div>
+
+        <div class="content">
+        
+            {% if email_status == 'failure' %}
+            <div class="alert alert-error">
+                <i class="fas fa-exclamation-circle"></i>
+                <div>
+                    <strong>Email Not Sent:</strong> {{ email_message }}
+                </div>
+            </div>
+            {% elif email_status == 'success' %}
+            <div class="alert alert-success">
+                <i class="fas fa-check-circle"></i>
+                <div>
+                    <strong>Profile Link Sent:</strong> Check your email for your unique profile link
+                </div>
+            </div>
+            {% endif %}
+
+         
+            <div class="visitor-card">
+                <div class="visitor-header">
+                    {% if visitor and visitor.basic_info and visitor.basic_info.photo_path %}
+                    {% set photo_path = visitor.basic_info.photo_path %}
+                    {# Remove any folder prefixes and get just the filename #}
+                    {% set filename = photo_path.split('\\')[-1] %}
+                    <img src="{{ url_for('uploaded_file', filename=filename) }}" 
+                        alt="{{ visitor.basic_info.name }}'s Photo" 
+                        class="visitor-photo">
+                {% else %}
+                <div class="visitor-photo" style="background: var(--light-gray); display: flex; align-items: center; justify-content: center; color: var(--gray);">
+                    <i class="fas fa-user fa-2x"></i>
+                </div>
+                {% endif %}
+                    
+                    <div class="visitor-details">
+                        <h3>{{ visitor.basic_info.name if visitor and visitor.basic_info else 'Visitor' }}</h3>
+                        <p>{{ visitor.basic_info.contact if visitor and visitor.basic_info else 'N/A' }}</p>
+                    </div>
+                </div>
+            </div>
+          
+<div class="container">
+    {% if recent_visit %}
+        <h2>Your Visit Details</h2>
+        <div class="visit-details">
+            <p><strong>Purpose:</strong> {{ recent_visit.purpose }}</p>
+            <p><strong>Duration:</strong> {{ recent_visit.duration }}</p>
+            <p><strong>Visit Date:</strong> {{ recent_visit.visit_date }}</p>
+            <p><strong>Status:</strong> {{ recent_visit.status }}</p>
+            {% if recent_visit.employee_name and recent_visit.employee_name != 'N/A' %}
+                <p><strong>Employee:</strong> {{ recent_visit.employee_name }}</p>
+            {% endif %}
+        </div>
+    {% else %}
+        <p>No visit details found. Please contact support.</p>
+    {% endif %}
+</div>
+
+          
+            <div class="warning-box">
+                <i class="fas fa-exclamation-triangle"></i> 
+                Please proceed to the physical access gate for facial verification
+            </div>
+
+         
+            <a href="/verify" class="btn">
+                <i class="fas fa-camera"></i> Proceed to Face Verification
+            </a>
+            
+            <a href="/" class="btn btn-secondary">
+                <i class="fas fa-home"></i> Return to Home
+            </a>
+        </div>
+    </div>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Check-In Portal - Visitor Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-registered {
+            background-color: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        .status-approved {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .status-checked-in {
+            background-color: #f0f9ff;
+            color: #0369a1;
+            border: 1px solid #7dd3fc;
+        }
+        .photo-placeholder {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .detail-card {
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+        .detail-card:hover {
+            transform: translateX(4px);
+        }
+        .alert-success {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-left: 4px solid #16a34a;
+        }
+        .alert-error {
+            background: linear-gradient(135deg, #fee2e2, #fecaca);
+            border-left: 4px solid #dc2626;
+        }
+        .warning-box {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-left: 4px solid #d97706;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-purple-50 to-indigo-100 min-h-screen py-8 px-4">
+    <div class="max-w-lg mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-lg mb-4">
+                <i class="fas fa-door-open text-3xl text-blue-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Check-In Portal</h1>
+            <p class="text-gray-600">Complete your visit with facial verification</p>
+        </div>
+
+        <!-- Main Container -->
+        <div class="glass-effect rounded-2xl shadow-xl border border-gray-100 overflow-hidden card-hover">
+            <!-- Email Status Alert -->
+            {% if email_status == 'failure' %}
+            <div class="alert-error p-4 border-b border-red-200">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-exclamation-circle text-red-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-red-800">Email Not Sent</h3>
+                        <p class="text-red-700 text-sm">{{ email_message }}</p>
+                    </div>
+                </div>
+            </div>
+            {% elif email_status == 'success' %}
+            <div class="alert-success p-4 border-b border-green-200">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-check-circle text-green-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-green-800">Profile Link Sent</h3>
+                        <p class="text-green-700 text-sm">Check your email for your unique profile link</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="p-8">
+                <!-- Visitor Profile Card -->
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 mb-6">
+                    <div class="flex items-center space-x-4 mb-4">
+                        {% if visitor and visitor.basic_info and visitor.basic_info.photo_path %}
+                            {% set photo_path = visitor.basic_info.photo_path %}
+                            {% set filename = photo_path.split('\\')[-1] %}
+                            <img src="{{ url_for('uploaded_file', filename=filename) }}" 
+                                alt="{{ visitor.basic_info.name }}'s Photo" 
+                                class="w-16 h-16 object-cover rounded-xl shadow-md border-2 border-blue-200">
+                        {% else %}
+                            <div class="w-16 h-16 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                <i class="fas fa-user text-xl"></i>
+                            </div>
+                        {% endif %}
+                        
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800">
+                                {{ visitor.basic_info.name if visitor and visitor.basic_info else 'Visitor' }}
+                            </h3>
+                            <p class="text-gray-600 text-sm">
+                                {{ visitor.basic_info.contact if visitor and visitor.basic_info else 'N/A' }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visit Details -->
+                {% if recent_visit %}
+                <div class="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-6 mb-6">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-calendar-alt text-blue-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-blue-800">Visit Details</h3>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="detail-card bg-white border-l-blue-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-blue-700 mb-1">Purpose</label>
+                            <span class="text-gray-800">{{ recent_visit.purpose }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-green-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-green-700 mb-1">Duration</label>
+                            <span class="text-gray-800">{{ recent_visit.duration }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-purple-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-purple-700 mb-1">Visit Date</label>
+                            <span class="text-gray-800">{{ recent_visit.visit_date }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-orange-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-orange-700 mb-1">Status</label>
+                            <span class="status-badge status-{{ recent_visit.status.lower().replace(' ', '-') }}">
+                                {{ recent_visit.status }}
+                            </span>
+                        </div>
+                        
+                        {% if recent_visit.employee_name and recent_visit.employee_name != 'N/A' %}
+                        <div class="detail-card bg-white border-l-indigo-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-indigo-700 mb-1">Employee</label>
+                            <span class="text-gray-800">{{ recent_visit.employee_name }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="bg-yellow-50 border border-yellow-200 rounded-2xl p-6 mb-6">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-exclamation-triangle text-yellow-600 text-xl"></i>
+                        <div>
+                            <h3 class="font-semibold text-yellow-800">No Visit Details Found</h3>
+                            <p class="text-yellow-700 text-sm">Please contact support for assistance</p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Instructions -->
+                <div class="warning-box rounded-2xl p-4 mb-6">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-exclamation-triangle text-orange-600 text-xl"></i>
+                        <div>
+                            <h3 class="font-semibold text-orange-800">Important Notice</h3>
+                            <p class="text-orange-700">Please proceed to the physical access gate for facial verification</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                
+                    
+                    <a href="/" 
+                       class="flex items-center justify-center space-x-3 bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl">
+                        <i class="fas fa-home"></i>
+                        <span>Return to Home</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-6">
+            <p class="text-gray-500 text-sm">
+                <i class="fas fa-shield-alt mr-2"></i>
+                Secure Visitor Management System
+            </p>
+        </div>
+    </div>
+
+    <script>
+        // Add some interactive animations
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.card-hover, .detail-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'all 0.5s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

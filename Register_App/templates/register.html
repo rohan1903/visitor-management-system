@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biometric Registration Portal</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a0ca3;
+            --primary-light: #4895ef;
+            --secondary: #f72585;
+            --accent: #4cc9f0;
+            --success: #38b000;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --gray: #6c757d;
+            --light-gray: #e9ecef;
+            --error: #ef233c;
+            --warning: #ff9e00;
+            --border-radius: 16px;
+            --border-radius-sm: 12px;
+            --box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f3f5ff 0%, #edf0ff 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            overflow: hidden;
+            margin: 20px 0;
+            animation: fadeIn 0.8s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(25px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .header::before {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(30deg);
+        }
+
+        .header h2 {
+            font-size: 32px;
+            margin-bottom: 8px;
+            font-weight: 700;
+            position: relative;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 16px;
+            max-width: 600px;
+            margin: 0 auto;
+            position: relative;
+        }
+
+        .content {
+            padding: 40px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                grid-template-columns: 1fr;
+                padding: 30px 20px;
+                gap: 30px;
+            }
+        }
+
+        .form-section, .camera-section {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-section {
+            min-height: 400px; 
+        }
+
+        .form-group {
+            margin-bottom: 24px;
+            position: relative;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 15px;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        input[type="text"], input[type="email"], input[type="date"], select {
+            width: 100%;
+            padding: 16px 18px;
+            border: 2px solid var(--light-gray);
+            border-radius: var(--border-radius-sm);
+            font-size: 16px;
+            transition: var(--transition);
+            background-color: white;
+            color: var(--dark);
+            -webkit-appearance: none;
+            -moz-appearance: none;
+            appearance: none;
+        }
+        
+        select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='%236c757d'%3E%3Cpath fill-rule='evenodd' d='M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.25 4.25a.75.75 0 01-1.06 0L5.21 8.27a.75.75 0 01.02-1.06z' clip-rule='evenodd' /%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 18px center;
+            padding-right: 40px;
+        }
+
+        input[type="text"]:focus, input[type="email"]:focus, input[type="date"]:focus, select:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 3px rgba(72, 149, 239, 0.2);
+        }
+
+        input.error, select.error {
+            border-color: var(--error);
+            background-color: rgba(239, 35, 60, 0.03);
+        }
+
+        input.success, select.success {
+            border-color: var(--success);
+            background-color: rgba(56, 176, 0, 0.03);
+        }
+
+        .input-icon {
+            position: absolute;
+            right: 15px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--gray);
+            font-size: 18px;
+            pointer-events: none;
+        }
+        
+        .input-wrapper .fa-check-circle, .input-wrapper .fa-times-circle {
+            pointer-events: auto;
+        }
+
+        .error-message {
+            color: var(--error);
+            font-size: 14px;
+            margin-top: 8px;
+            display: none;
+            font-weight: 500;
+        }
+
+        .success-message-icon {
+            color: var(--success);
+            margin-right: 8px;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            border-radius: var(--border-radius);
+            overflow: hidden;
+            margin-bottom: 25px;
+            background: var(--dark);
+            aspect-ratio: 4/3;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            min-height: 200px;
+        }
+
+        #video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            padding: 18px 25px;
+            font-size: 18px;
+            font-weight: 600;
+            border-radius: var(--border-radius-sm);
+            cursor: pointer;
+            transition: var(--transition);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            margin-top: auto;
+            box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: rgba(255, 255, 255, 0.1);
+            transform: rotate(30deg);
+            transition: var(--transition);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .btn:hover::after {
+            opacity: 1;
+            transform: rotate(30deg) translate(10%, 10%);
+        }
+
+        .btn i {
+            margin-right: 12px;
+        }
+
+        .btn:disabled {
+            background: var(--gray);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none !important;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 25px;
+            color: var(--gray);
+            font-size: 14px;
+            border-top: 1px solid var(--light-gray);
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .success-message {
+            display: none;
+            background: rgba(56, 176, 0, 0.08);
+            border: 1px solid var(--success);
+            color: var(--success);
+            padding: 16px;
+            border-radius: var(--border-radius-sm);
+            margin-top: 20px;
+            text-align: center;
+            font-weight: 500;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Floating animation for the camera section */
+        @keyframes float {
+            0% { transform: translateY(0px); }
+            50% { transform: translateY(-10px); }
+            100% { transform: translateY(0px); }
+        }
+
+        .camera-section {
+            animation: float 6s ease-in-out infinite;
+        }
+
+        /* Tooltip for validation icons */
+        .tooltip {
+            position: absolute;
+            right: -10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--dark);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+            opacity: 0;
+            pointer-events: none;
+            transition: var(--transition);
+            white-space: nowrap;
+            z-index: 10;
+        }
+
+        .tooltip::after {
+            content: "";
+            position: absolute;
+            left: -5px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 0;
+            height: 0;
+            border-top: 5px solid transparent;
+            border-bottom: 5px solid transparent;
+            border-right: 5px solid var(--dark);
+        }
+
+        .input-wrapper .input-icon:hover + .tooltip {
+            opacity: 1;
+            right: -15px;
+        }
+        
+        /* Custom message box for errors (replaces alert()) */
+        #custom-message-box {
+            position: fixed; 
+            top: 20px; 
+            right: 20px; 
+            z-index: 1000; 
+            padding: 15px 25px;
+            background: var(--error); 
+            color: white; 
+            border-radius: var(--border-radius-sm);
+            box-shadow: 0 4px 15px rgba(239, 35, 60, 0.4); 
+            font-weight: 600; 
+            display: none;
+            transition: all 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+            opacity: 0;
+        }
+        
+        /* --- New styles for radio buttons --- */
+        .radio-group {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 10px;
+        }
+
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            font-weight: 500;
+            cursor: pointer;
+            margin-bottom: 0;
+            transition: color 0.3s;
+        }
+        
+        .radio-group label:hover {
+            color: var(--primary-dark);
+        }
+
+        .radio-group input[type="radio"] {
+            width: 18px;
+            height: 18px;
+            margin-right: 8px;
+            appearance: none;
+            border: 2px solid var(--gray);
+            border-radius: 50%;
+            transition: var(--transition);
+            flex-shrink: 0;
+            padding: 0;
+            box-shadow: none;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .radio-group input[type="radio"]:checked {
+            border: 5px solid var(--primary);
+            box-shadow: 0 0 0 1px var(--primary-light);
+        }
+
+        #purpose-dynamic-input {
+            margin-top: 15px;
+        }
+        
+        .purpose-wrapper {
+            margin-top: 15px;
+        }
+        
+        .section-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: var(--primary-dark);
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--light-gray);
+        }
+        
+        .camera-title {
+            text-align: center;
+            color: var(--gray);
+            font-weight: 500;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h2><i class="fas fa-fingerprint"></i> Biometric Registration Portal</h2>
+            <p>Complete your registration with facial recognition technology</p>
+        </div>
+
+        <div class="content">
+            <div class="form-section">
+                <div class="section-title">
+                    <i class="fas fa-user-edit"></i> Visitor Information
+                </div>
+                <form id="regForm">
+                    <div class="form-group">
+                        <label for="name">Full Name</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="name" name="name" placeholder="John Doe" required>
+                            <i class="fas fa-user input-icon"></i>
+                            <div class="tooltip">Letters and spaces only (2+ characters)</div>
+                        </div>
+                        <div class="error-message" id="name-error">Please enter a valid full name.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="email">Email Address</label>
+                        <div class="input-wrapper">
+                            <input type="email" id="email" name="email" placeholder="john.doe@example.com" required>
+                            <i class="fas fa-envelope input-icon"></i>
+                            <div class="tooltip">Must be a valid email format</div>
+                        </div>
+                        <div class="error-message" id="email-error">Please enter a valid email address (e.g., example@domain.com)</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="visit_date">Date of Visit</label>
+                        <div class="input-wrapper">
+                            <input type="date" id="visit_date" name="visit_date" required>
+                            <i class="fas fa-calendar-alt input-icon"></i>
+                        </div>
+                        <div class="error-message" id="date-error">Please select a valid visit date.</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Purpose of Visit</label>
+                        <div class="radio-group">
+                            <label>
+                                <input type="radio" name="purpose_type" value="meetEmployee" id="radio-employee" checked>
+                                To meet an employee
+                            </label>
+                            <label>
+                                <input type="radio" name="purpose_type" value="other" id="radio-other">
+                                Other
+                            </label>
+                        </div>
+
+                        <div id="purpose-dynamic-input" class="purpose-wrapper">
+                            <div class="input-wrapper" id="employee-selection-wrapper">
+                                <select id="employee-dropdown" name="employeeSelect">
+                                    <option value="" disabled selected>Loading Employees...</option>
+                                    <!-- Employees will be populated dynamically -->
+                                </select>
+                                <i class="fas fa-user-tie input-icon"></i>
+                            </div>
+
+                            <div class="input-wrapper" id="other-purpose-wrapper" style="display: none;">
+                                <input type="text" id="other-purpose-input" name="purpose" placeholder="Interview, event, delivery, etc." disabled>
+                                <i class="fas fa-clipboard-question input-icon"></i>
+                                <div class="tooltip">Minimum 4 characters (letters/spaces/numbers only)</div>
+                            </div>
+                        </div>
+                        
+                        <div class="error-message" id="purpose-error">Please select an employee or specify the purpose of your visit (min 4 chars).</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="duration">Duration</label>
+                        <select id="duration" name="duration">
+                            <option value="1hr">1 hour</option>
+                            <option value="2hr">2 hours</option>
+                            <option value="3hr">3 hours</option>
+                            <option value="Not sure">Not sure</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+
+            <div class="camera-section">
+                <div class="section-title">
+                    <i class="fas fa-camera"></i> Biometric Capture
+                </div>
+                <p class="camera-title">Face Capture Preview</p>
+                <div class="video-container">
+                    <video id="video" autoplay playsinline></video> 
+                    <div id="camera-status" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.8); color: white; font-size: 1.1em;">
+                        Waiting for camera access...
+                    </div>
+                </div>
+                <button class="btn" id="registerBtn" type="submit" form="regForm" disabled>
+                    <i class="fas fa-user-plus"></i> Complete Registration
+                    <div class="spinner" id="spinner"></div>
+                </button>
+                <div class="success-message" id="success-message">
+                    <i class="fas fa-check-circle success-message-icon"></i> Registration successful! Redirecting...
+                </div>
+                <div id="custom-message-box"></div>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><i class="fas fa-lock"></i> Your data is encrypted and securely stored in compliance with privacy regulations</p>
+        </div>
+    </div>
+
+    <script>
+        // Element declarations
+        const video = document.getElementById("video");
+        const registerBtn = document.getElementById("registerBtn");
+        const cameraStatus = document.getElementById("camera-status");
+        const regForm = document.getElementById("regForm");
+        const radioEmployee = document.getElementById('radio-employee');
+        const radioOther = document.getElementById('radio-other');
+        const employeeDropdown = document.getElementById('employee-dropdown');
+        const otherPurposeInput = document.getElementById('other-purpose-input');
+        const employeeWrapper = document.getElementById('employee-selection-wrapper');
+        const otherWrapper = document.getElementById('other-purpose-wrapper');
+
+        // Store captured photo data
+        let capturedPhotoData = null;
+
+        /**
+         * Custom message box function to display errors, replacing alert().
+         * @param {string} message - The error message to show.
+         */
+        function showMessage(message) {
+            const messageBox = document.getElementById('custom-message-box');
+            messageBox.textContent = message;
+            messageBox.style.display = 'block';
+            setTimeout(() => {
+                messageBox.style.opacity = 1;
+            }, 10);
+            setTimeout(() => {
+                messageBox.style.opacity = 0;
+                setTimeout(() => {
+                    messageBox.style.display = 'none';
+                }, 400);
+            }, 3000);
+        }
+
+        // --- Camera Access Initialization ---
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                video.srcObject = stream;
+                video.addEventListener('loadedmetadata', () => {
+                    cameraStatus.style.display = 'none';
+                    // Enable button only after camera is ready and employees are loaded
+                    if (employeeDropdown.options.length > 1) {
+                        registerBtn.disabled = false;
+                    }
+                });
+            })
+            .catch(err => {
+                console.error("Error accessing camera:", err);
+                cameraStatus.innerHTML = '<i class="fas fa-exclamation-circle"></i> Camera access denied or unavailable.';
+                cameraStatus.style.background = 'rgba(239, 35, 60, 0.9)';
+                showMessage("❌ Could not access the camera. Registration disabled.");
+                registerBtn.disabled = true;
+                registerBtn.innerHTML = '<i class="fas fa-camera-slash"></i> Camera Not Available';
+            });
+
+        // --- Employee Fetching Logic ---
+        async function fetchEmployees() {
+            try {
+                const response = await fetch('/employees');
+                if (!response.ok) {
+                    throw new Error('Failed to fetch employees');
+                }
+
+                const employees = await response.json();
+                populateEmployeeDropdown(employees);
+
+                // Enable register button if camera ready too
+                if (video.srcObject) {
+                    registerBtn.disabled = false;
+                }
+            } catch (error) {
+                console.error("Error fetching employees:", error);
+                employeeDropdown.innerHTML = '<option value="" disabled selected>Could not load employees</option>';
+                employeeDropdown.disabled = true;
+                showMessage("⚠️ Failed to load employee list from server.");
+            }
+        }
+
+        /**
+         * Populates the employee dropdown with data.
+         * @param {Array<Object>} employees - List of employee objects.
+         */
+        function populateEmployeeDropdown(employees) {
+            employeeDropdown.innerHTML = '<option value="" disabled selected>Select Employee</option>';
+
+            // Sort employees alphabetically
+            employees.sort((a, b) => a.name.localeCompare(b.name));
+
+            employees.forEach(employee => {
+                const option = document.createElement('option');
+                option.value = employee.id;
+                option.textContent = `${employee.name} (${employee.department || 'N/A'})`;
+                employeeDropdown.appendChild(option);
+            });
+
+            employeeDropdown.disabled = false;
+        }
+
+        // --- Purpose Logic ---
+        function togglePurposeInput() {
+            const isEmployee = radioEmployee.checked;
+            
+            if (isEmployee) {
+                employeeWrapper.style.display = 'block';
+                employeeDropdown.disabled = false;
+                
+                otherWrapper.style.display = 'none';
+                otherPurposeInput.disabled = true;
+                otherPurposeInput.value = '';
+                
+                showValidationStatus('other-purpose-input', true);
+            } else {
+                employeeWrapper.style.display = 'none';
+                employeeDropdown.disabled = true;
+                employeeDropdown.value = '';
+                
+                otherWrapper.style.display = 'block';
+                otherPurposeInput.disabled = false;
+
+                showValidationStatus('employee-dropdown', true);
+            }
+            validateForm();
+        }
+
+        // Add listeners for radio buttons
+        radioEmployee.addEventListener('change', togglePurposeInput);
+        radioOther.addEventListener('change', togglePurposeInput);
+        
+        // Initial setup for fetching employees
+        fetchEmployees();
+
+        // --- Validation Functions ---
+        function validateName(name) {
+            const trimmed = name.trim();
+            const regex = /^[a-zA-Z]+(?: [a-zA-Z]+)*$/;
+            return trimmed.length >= 2 && regex.test(trimmed);
+        }
+
+        function validateEmail(email) {
+            const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            return regex.test(email.trim());
+        }
+
+        function validateCustomPurpose(purpose) {
+            const trimmed = purpose.trim();
+            return trimmed.length >= 4 && /^[a-zA-Z0-9\s]+$/.test(trimmed);
+        }
+        
+        function validatePurposeGroup() {
+            if (radioEmployee.checked) {
+                const isSelected = employeeDropdown.value !== "";
+                showValidationStatus('employee-dropdown', isSelected);
+                return isSelected;
+            } else if (radioOther.checked) {
+                const isValid = validateCustomPurpose(otherPurposeInput.value);
+                showValidationStatus('other-purpose-input', isValid);
+                return isValid;
+            }
+            return false;
+        }
+
+        /**
+         * Applies visual validation status (success/error classes and icons) to form fields.
+         */
+        function showValidationStatus(fieldId, isValid) {
+            const field = document.getElementById(fieldId);
+            if (!field) return;
+
+            if (field.tagName === 'SELECT') {
+                field.classList.remove('success', 'error');
+                if (field.value === "" && !isValid) {
+                    field.classList.add('error');
+                } else if (isValid) {
+                    field.classList.add('success');
+                }
+                return;
+            }
+            
+            const icon = field.parentElement.querySelector('.input-icon');
+            
+            let originalIconClass = '';
+            if (fieldId === 'name') originalIconClass = 'fa-user';
+            if (fieldId === 'email') originalIconClass = 'fa-envelope';
+            
+            field.classList.remove('success', 'error');
+            if (icon && fieldId !== 'employee-dropdown' && fieldId !== 'other-purpose-input') {
+                icon.classList.remove('fa-user', 'fa-envelope', 'fa-check-circle', 'fa-times-circle');
+                icon.style.color = 'var(--gray)';
+            }
+
+            if (field.value.trim() === '' || field.disabled) {
+                if (icon && originalIconClass) icon.classList.add(originalIconClass);
+            } else if (isValid) {
+                field.classList.add('success');
+                if (icon) {
+                    icon.style.color = 'var(--success)';
+                    icon.classList.add('fa-check-circle');
+                }
+            } else {
+                field.classList.add('error');
+                if (icon) {
+                    icon.style.color = 'var(--error)';
+                    icon.classList.add('fa-times-circle');
+                }
+            }
+        }
+
+        // Run validation on all fields
+        function validateForm() {
+            const name = document.getElementById("name").value.trim();
+            const email = document.getElementById("email").value.trim();
+            let isValid = true;
+
+            document.querySelectorAll('.error-message').forEach(el => el.style.display = 'none');
+
+            // 1. Validate name
+            const isNameValid = validateName(name);
+            if (!isNameValid) {
+                document.getElementById("name-error").style.display = 'block';
+                isValid = false;
+            }
+            showValidationStatus('name', isNameValid);
+
+            // 2. Validate email
+            const isEmailValid = validateEmail(email);
+            if (!isEmailValid) {
+                document.getElementById("email-error").style.display = 'block';
+                isValid = false;
+            }
+            showValidationStatus('email', isEmailValid);
+
+            // 3. Validate purpose group
+            const isPurposeValid = validatePurposeGroup();
+            if (!isPurposeValid) {
+                document.getElementById("purpose-error").style.display = 'block';
+                isValid = false;
+            }
+
+            // 4. Check if camera stream is active (only if button is not already disabled for camera error)
+            if (!registerBtn.disabled && !video.srcObject) {
+                 isValid = false; // This shouldn't be needed if camera check is good, but good safeguard
+            }
+
+            return isValid;
+        }
+
+        // Add event listeners for dynamic validation
+        document.getElementById("name").addEventListener('input', () => {
+             showValidationStatus('name', validateName(document.getElementById("name").value));
+        });
+        document.getElementById("email").addEventListener('input', () => {
+            showValidationStatus('email', validateEmail(document.getElementById("email").value));
+        });
+        employeeDropdown.addEventListener('change', () => {
+             validatePurposeGroup();
+        });
+        otherPurposeInput.addEventListener('input', () => {
+             validatePurposeGroup();
+        });
+        
+        // This is the function that controls the button's overall state
+        regForm.addEventListener('input', () => {
+            // Re-run full validation on input to enable/disable button
+            if (video.srcObject) { // Only enable if camera is ready
+                const formValid = validateForm();
+                registerBtn.disabled = !formValid;
+            }
+        });
+
+        // Form submission handler
+        regForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // First, validate the form
+            if (!validateForm()) {
+                showMessage("Please fix the errors in the form before submitting.");
+                return;
+            }
+
+            // Date validation — ensure past date is not selected
+            const visitDateInput = document.getElementById("visit_date");
+            const visitDateValue = visitDateInput.value;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // ignore time for comparison
+
+            if (!visitDateValue) {
+                showMessage("Please select a visit date.");
+                return;
+            }
+
+            const selectedDate = new Date(visitDateValue);
+            if (selectedDate < today) {
+                showMessage("You cannot select a past date. Please choose today or a future date.");
+                visitDateInput.focus();
+                return;
+            }
+
+            const submitBtn = document.getElementById('registerBtn');
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+            submitBtn.disabled = true;
+
+            try {
+                // Capture photo from camera
+                const canvas = document.createElement("canvas");
+                canvas.width = video.videoWidth || 640;
+                canvas.height = video.videoHeight || 480;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const photoBase64 = canvas.toDataURL("image/jpeg", 0.9);
+
+                // Determine purpose type and values
+                let purposeType = "other";
+                let employeeSelect = "";
+                let purpose = "";
+
+                if (radioEmployee.checked) {
+                    purposeType = "meetEmployee";
+                    employeeSelect = employeeDropdown.value;
+                    purpose = `Meeting with ${employeeDropdown.options[employeeDropdown.selectedIndex].text.split(' - ')[0]}`;
+                } else if (radioOther.checked) {
+                    purposeType = "other";
+                    purpose = otherPurposeInput.value.trim();
+                }
+
+                // Prepare form data for submission
+                const formData = {
+                    name: document.getElementById("name").value.trim(),
+                    email: document.getElementById("email").value.trim(),
+                    purposeType: purposeType,
+                    employeeSelect: employeeSelect,
+                    purpose: purpose,
+                    duration: document.getElementById("duration").value,
+                    visit_date: visitDateValue, // include date in submission
+                    photo_base64: photoBase64
+                };
+
+                // Send data to server
+                const response = await fetch('/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    // Show success message
+                    document.getElementById('success-message').style.display = 'flex';
+                    submitBtn.style.display = 'none';
+                    
+                    // Stop the camera stream
+                    if (video.srcObject) {
+                        const tracks = video.srcObject.getTracks();
+                        tracks.forEach(track => track.stop());
+                    }
+                    
+                    // Redirect to check_in page after a short delay
+                    setTimeout(() => {
+                        window.location.href = result.redirect_url || '/check_in';
+                    }, 2000);
+                } else {
+                    throw new Error(result.message || 'Registration failed');
+                }
+
+            } catch (error) {
+                console.error('Error during registration:', error);
+                showMessage(error.message || 'Registration failed. Please try again.');
+                submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Complete Registration';
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>

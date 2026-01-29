@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Old Visitor Face Verification</title>
+</head>
+<body style="text-align:center; font-family: Arial;">
+  <h2>Old Visitor Face Verification</h2>
+  <video id="video" width="320" height="240" autoplay></video><br><br>
+  <button onclick="captureAndVerify()">Verify</button>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // ✅ Enable webcam stream
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(stream => {
+        video.srcObject = stream;
+      })
+      .catch(err => {
+        console.error("❌ Error accessing webcam:", err);
+        alert("Cannot access webcam. Please allow camera permission.");
+      });
+
+    // const BASE_URL = "https://91f5cfb2f3bf.ngrok-free.app";
+    const BASE_URL = "http://127.0.0.1:5050";
+ // ❌ Removed space at end
+
+    function captureAndVerify() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0);
+      const imgData = canvas.toDataURL("image/jpeg");
+
+      fetch(`${BASE_URL}/verify-face`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image: imgData })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (data.match) {
+          window.location.href = `${BASE_URL}/form`;
+        } else {
+          window.location.href = `${BASE_URL}/register`;
+        }
+      })
+      .catch(err => {
+        console.error("❌ Fetch error:", err);
+        alert("Could not connect to server.");
+      });
+    }
+  </script>
+
+</body>
+</html>

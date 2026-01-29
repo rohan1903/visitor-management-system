@@ -1,0 +1,97 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv
+
+# Environment variables (CRITICAL - contains sensitive data)
+.env
+.env.local
+.env.*.local
+
+# Firebase credentials (CRITICAL - contains sensitive data)
+firebase_credentials.json
+**/firebase_credentials.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Flask
+instance/
+.webassets-cache
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Upload directories (test images - optional, uncomment if you want to exclude)
+# uploads/
+# **/uploads/
+# uploads_reg/
+# **/uploads_reg/
+
+# Large model files (optional - uncomment if you want to exclude from git)
+# *.pkl
+# *.dat
+# *.onnx
+# *.h5
+# *.pb
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# ZIP files (original archives - already extracted)
+*.zip
+
+# Audio files (test files)
+*.wav
+*.mp3
+
+# QR codes (generated files)
+*.png
+!**/templates/**/*.png
+

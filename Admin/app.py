@@ -1,0 +1,5127 @@
+import os
+import uuid
+import smtplib
+from email.mime.text import MIMEText
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify
+import pandas as pd
+from dotenv import load_dotenv
+import firebase_admin
+from firebase_admin import credentials, db
+import pickle
+from datetime import datetime, timedelta
+from collections import Counter, defaultdict
+
+import pickle
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+import os
+from flask import send_from_directory
+
+# Add this route to serve images from the uploads_reg folder
+
+# Load your sentiment analysis model (add this at the top of your app.py)
+try:
+    with open('sentiment_analysis.pkl', 'rb') as f:
+        sentiment_model = pickle.load(f)
+    print("Sentiment model loaded successfully")
+except FileNotFoundError:
+    print("Sentiment model file not found")
+    sentiment_model = None
+except Exception as e:
+    print(f"Error loading sentiment model: {e}")
+    sentiment_model = None
+
+
+# --------------------------
+# Environment & Flask Setup
+# --------------------------
+load_dotenv()
+app = Flask(__name__)
+app.secret_key = os.getenv("SECRET_KEY", "default_secret_for_testing")
+app.config['UPLOAD_FOLDER'] = 'UPLOADS'
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# --------------------------
+# Firebase Initialization
+# --------------------------
+cred = credentials.Certificate("firebase_credentials.json")
+firebase_admin.initialize_app(cred, {
+    'databaseURL': 'https://v-guard-af8af-default-rtdb.firebaseio.com/'
+})
+
+# --------------------------
+# Email Config
+# --------------------------
+SENDER_EMAIL = os.getenv("EMAIL_USER")
+SENDER_PASS = os.getenv("EMAIL_PASS")
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+
+def send_email(recipient_email, registration_link):
+    """Send email with registration link."""
+    if not (SENDER_EMAIL and SENDER_PASS):
+        print("⚠️ Missing SMTP credentials.")
+        return False
+
+    msg = MIMEText(f"Hello,\n\nPlease register here: {registration_link}\n\nRegards,\nAdmin Team")
+    msg['Subject'] = "Visitor Registration Invitation"
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = recipient_email
+
+    try:
+        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SENDER_EMAIL, SENDER_PASS)
+            server.sendmail(SENDER_EMAIL, recipient_email, msg.as_string())
+        print(f"✅ Email sent to {recipient_email}")
+        return True
+    except Exception as e:
+        print(f"❌ Email sending failed: {e}")
+        return False
+
+def trigger_invitation(email):
+    """Create a unique registration token and send a registration link to the external web app."""
+    invite_token = str(uuid.uuid4())
+    registration_base_url = os.getenv("REGISTRATION_APP_URL", "https://verdie-fictive-margret.ngrok-free.dev")
+    registration_link = f"{registration_base_url}/?token={invite_token}"
+
+    db.reference(f"invitations/{invite_token}").set({
+        "email": email,
+        "status": "Pending"
+    })
+
+    return send_email(email, registration_link)
+
+# --------------------------
+# Analytics Functions
+# --------------------------
+def get_visitor_analytics():
+    """Get comprehensive visitor analytics for dashboard"""
+    visitors_ref = db.reference('visitors')
+    all_visitors = visitors_ref.get() or {}
+    
+    now = datetime.now()
+    today = now.date()
+    week_ago = today - timedelta(days=7)
+    month_ago = today - timedelta(days=30)
+    
+    daily_count = 0
+    weekly_count = 0
+    monthly_count = 0
+    purpose_counts = Counter()
+    status_counts = Counter()
+    blacklisted_count = 0
+    
+    for vid, data in all_visitors.items():
+        # Count visitors by time period
+        check_in_time = data.get('check_in_time')
+        if check_in_time:
+            try:
+                check_in_date = datetime.strptime(check_in_time, "%Y-%m-%d %H:%M:%S").date()
+                if check_in_date == today:
+                    daily_count += 1
+                if check_in_date >= week_ago:
+                    weekly_count += 1
+                if check_in_date >= month_ago:
+                    monthly_count += 1
+            except ValueError:
+                pass
+        
+        # Count by purpose
+        purpose = data.get('purpose', 'Unknown')
+        purpose_counts[purpose] += 1
+        
+        # Count by status
+        status = data.get('status', 'Unknown')
+        status_counts[status] += 1
+        
+        # Count blacklisted
+        blacklisted = data.get('blacklisted', False)
+        if isinstance(blacklisted, str):
+            if blacklisted.strip().lower() in ['yes', 'true', '1']:
+                blacklisted_count += 1
+        elif blacklisted:
+            blacklisted_count += 1
+    
+    return {
+        'daily_count': daily_count,
+        'weekly_count': weekly_count,
+        'monthly_count': monthly_count,
+        'purpose_counts': dict(purpose_counts),
+        'status_counts': dict(status_counts),
+        'blacklisted_count': blacklisted_count,
+        'total_visitors': len(all_visitors)
+    }
+
+# --------------------------
+# Routes
+# --------------------------
+@app.route('/uploads_reg/<path:filename>')
+def serve_uploaded_image(filename):
+    """Serve images from the uploads_reg directory"""
+    uploads_dir = r'E:\Register_App\uploads_reg'
+    return send_from_directory(uploads_dir, filename)
+
+
+@app.route('/')
+def index():
+    INDEX_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Admin Panel - Visitor Management System</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            body {
+                font-family: 'Inter', sans-serif;
+                background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            }
+            .card-hover {
+                transition: all 0.3s ease;
+                transform: translateY(0);
+            }
+            .card-hover:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            }
+            .glass-effect {
+                background: rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+                border: 1px solid rgba(255, 255, 255, 0.2);
+            }
+            .main-grid {
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 1.5rem;
+            }
+            .second-row {
+                grid-column: 1 / -1;
+                display: flex;
+                justify-content: center;
+                gap: 1.5rem;
+            }
+            @media (max-width: 1024px) {
+                .main-grid {
+                    grid-template-columns: repeat(2, 1fr);
+                }
+                .second-row {
+                    justify-content: flex-start;
+                }
+            }
+            @media (max-width: 768px) {
+                .main-grid {
+                    grid-template-columns: 1fr;
+                }
+                .second-row {
+                    flex-direction: column;
+                    align-items: center;
+                }
+            }
+        </style>
+    </head>
+    <body class="min-h-screen flex items-center justify-center p-4">
+        <div class="max-w-6xl w-full">
+            <!-- Header -->
+            <div class="text-center mb-12">
+                <div class="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/10 backdrop-blur-sm mb-4">
+                    <i class="fas fa-shield-alt text-white text-3xl"></i>
+                </div>
+                <h1 class="text-4xl md:text-5xl font-bold text-white mb-3">Admin Dashboard</h1>
+                <p class="text-white/80 text-lg">Visitor Management System Control Center</p>
+            </div>
+
+            <!-- Main Navigation Cards -->
+            <div class="main-grid">
+                <!-- First Row - 3 Cards -->
+                <!-- Visitors Card -->
+                <a href="{{ url_for('visitors_list') }}" 
+                   class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-blue-200 group">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center group-hover:bg-blue-500 transition-colors">
+                            <i class="fas fa-users text-blue-600 group-hover:text-white text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-xl font-semibold text-gray-800">Visitors Management</h3>
+                            <p class="text-gray-600 text-sm">Manage all visitor records</p>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-sm text-gray-500">
+                        <span>View, edit, and manage visitors</span>
+                        <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                    </div>
+                </a>
+
+                <!-- Dashboard & Analytics Card -->
+                <a href="{{ url_for('admin_dashboard') }}" 
+                   class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-emerald-200 group">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center group-hover:bg-emerald-500 transition-colors">
+                            <i class="fas fa-chart-bar text-emerald-600 group-hover:text-white text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-xl font-semibold text-gray-800">Dashboard & Analytics</h3>
+                            <p class="text-gray-600 text-sm">Comprehensive insights</p>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-sm text-gray-500">
+                        <span>View analytics and reports</span>
+                        <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                    </div>
+                </a>
+
+                <!-- Upload Invitations Card -->
+                <a href="{{ url_for('upload_invitations_page') }}" 
+                   class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-indigo-200 group">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center group-hover:bg-indigo-500 transition-colors">
+                            <i class="fas fa-envelope text-indigo-600 group-hover:text-white text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <h3 class="text-xl font-semibold text-gray-800">Upload Invitations</h3>
+                            <p class="text-gray-600 text-sm">Send bulk invitations</p>
+                        </div>
+                    </div>
+                    <div class="flex justify-between items-center text-sm text-gray-500">
+                        <span>Upload Excel to send invites</span>
+                        <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                    </div>
+                </a>
+
+                <!-- Second Row - 2 Centered Cards -->
+                <div class="second-row">
+                    <!-- Feedback Analysis Card -->
+                    <a href="{{ url_for('feedback_analysis') }}" 
+                       class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-orange-200 group w-full max-w-md">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-orange-100 rounded-xl flex items-center justify-center group-hover:bg-orange-500 transition-colors">
+                                <i class="fas fa-comment-alt text-orange-600 group-hover:text-white text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <h3 class="text-xl font-semibold text-gray-800">Feedback Analysis</h3>
+                                <p class="text-gray-600 text-sm">Sentiment and reviews</p>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center text-sm text-gray-500">
+                            <span>Analyze visitor feedback</span>
+                            <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                        </div>
+                    </a>
+
+                    <!-- Employee List Card -->
+                    <a href="{{ url_for('employees_list') }}" 
+                       class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-purple-200 group w-full max-w-md">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center group-hover:bg-purple-500 transition-colors">
+                                <i class="fas fa-user-tie text-purple-600 group-hover:text-white text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <h3 class="text-xl font-semibold text-gray-800">Employee Management</h3>
+                                <p class="text-gray-600 text-sm">Manage staff records</p>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center text-sm text-gray-500">
+                            <span>View and manage employees</span>
+                            <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                        </div>
+                    </a>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="text-center mt-8">
+                <p class="text-white/60 text-sm">
+                    <i class="fas fa-shield-alt mr-2"></i>
+                    Secure Visitor Management System v2.0
+                </p>
+            </div>
+        </div>
+
+        <script>
+            // Add some interactive animations
+            document.addEventListener('DOMContentLoaded', function() {
+                const cards = document.querySelectorAll('.card-hover');
+                cards.forEach((card, index) => {
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateY(20px)';
+                    
+                    setTimeout(() => {
+                        card.style.transition = 'all 0.5s ease';
+                        card.style.opacity = '1';
+                        card.style.transform = 'translateY(0)';
+                    }, index * 100);
+                });
+
+                // Update stats with random numbers (for demo)
+                setInterval(() => {
+                    const stats = document.querySelectorAll('.glass-effect .text-2xl');
+                    stats.forEach(stat => {
+                        const current = parseInt(stat.textContent);
+                        const change = Math.floor(Math.random() * 3) - 1;
+                        const newValue = Math.max(0, current + change);
+                        stat.textContent = newValue;
+                    });
+                }, 3000);
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(INDEX_HTML)
+@app.route('/upload_invitations')
+def upload_invitations_page():
+    """Dedicated page for uploading invitations with clean UI"""
+    UPLOAD_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Upload Invitations - VMS</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+        <!-- Header -->
+        <div class="bg-white shadow-sm border-b">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center py-4">
+                    <div class="flex items-center">
+                        <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 mr-4">
+                            <i class="fas fa-arrow-left"></i>
+                        </a>
+                        <h1 class="text-2xl font-bold text-gray-900">Upload Invitations</h1>
+                    </div>
+                    <a href="{{ url_for('index') }}" class="text-blue-600 hover:text-blue-800 font-medium">
+                        <i class="fas fa-home mr-2"></i>Back to Home
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-4xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
+            <!-- Upload Card -->
+            <div class="bg-white rounded-2xl shadow-xl p-8">
+                <div class="text-center mb-8">
+                    <div class="w-20 h-20 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <i class="fas fa-envelope-open-text text-indigo-600 text-3xl"></i>
+                    </div>
+                    <h2 class="text-3xl font-bold text-gray-900 mb-2">Send Bulk Invitations</h2>
+                    <p class="text-gray-600 text-lg">Upload an Excel file to send registration invitations to multiple visitors</p>
+                </div>
+
+                <!-- Upload Form -->
+                <form id="inviteForm" method="POST" action="{{ url_for('upload_invites') }}" enctype="multipart/form-data" class="space-y-6">
+                    <!-- File Upload Area -->
+                    <div class="border-2 border-dashed border-gray-300 rounded-2xl p-8 text-center hover:border-indigo-400 transition-colors">
+                        <div class="flex flex-col items-center justify-center">
+                            <i class="fas fa-file-excel text-green-500 text-5xl mb-4"></i>
+                            <p class="text-lg font-semibold text-gray-700 mb-2">Upload Excel File</p>
+                            <p class="text-gray-500 mb-4">Supported formats: .xlsx, .xls</p>
+                            
+                            <div class="relative">
+                                <input type="file" name="file" id="fileInput" 
+                                       accept=".xlsx,.xls" 
+                                       class="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                                       required>
+                                <label for="fileInput" class="bg-indigo-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-indigo-700 transition-colors cursor-pointer">
+                                    <i class="fas fa-upload mr-2"></i>Choose File
+                                </label>
+                            </div>
+                            
+                            <p id="fileName" class="text-sm text-gray-500 mt-3">No file chosen</p>
+                        </div>
+                    </div>
+
+                    <!-- Requirements -->
+                    <div class="bg-blue-50 rounded-xl p-6">
+                        <h3 class="font-semibold text-blue-900 mb-3 flex items-center">
+                            <i class="fas fa-info-circle mr-2"></i>File Requirements
+                        </h3>
+                        <ul class="text-blue-800 space-y-2 text-sm">
+                            <li class="flex items-center">
+                                <i class="fas fa-check-circle mr-2 text-green-500"></i>
+                                File must contain an 'Email' column (case insensitive)
+                            </li>
+                            <li class="flex items-center">
+                                <i class="fas fa-check-circle mr-2 text-green-500"></i>
+                                Each email will receive a unique registration link
+                            </li>
+                            <li class="flex items-center">
+                                <i class="fas fa-check-circle mr-2 text-green-500"></i>
+                                Duplicate emails will be automatically filtered
+                            </li>
+                            <li class="flex items-center">
+                                <i class="fas fa-check-circle mr-2 text-green-500"></i>
+                                System supports up to 1000 invitations per upload
+                            </li>
+                        </ul>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" 
+                            id="submitBtn"
+                            class="w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white py-4 px-6 rounded-xl font-semibold text-lg hover:from-indigo-700 hover:to-purple-700 transition-all transform hover:scale-105 shadow-lg">
+                        <i class="fas fa-paper-plane mr-3"></i>Send Invitations
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            // File input handling
+            const fileInput = document.getElementById('fileInput');
+            const fileName = document.getElementById('fileName');
+            const submitBtn = document.getElementById('submitBtn');
+
+            fileInput.addEventListener('change', function(e) {
+                if (this.files.length > 0) {
+                    fileName.textContent = this.files[0].name;
+                    fileName.className = 'text-sm text-green-600 font-semibold mt-3';
+                } else {
+                    fileName.textContent = 'No file chosen';
+                    fileName.className = 'text-sm text-gray-500 mt-3';
+                }
+            });
+
+            // Form submission handling
+            document.getElementById('inviteForm').addEventListener('submit', function(e) {
+                const file = fileInput.files[0];
+                if (!file) {
+                    e.preventDefault();
+                    alert('Please select a file to upload.');
+                    return;
+                }
+
+                // Show loading state
+                submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-3"></i>Sending Invitations...';
+                submitBtn.disabled = true;
+                submitBtn.classList.remove('hover:scale-105', 'hover:from-indigo-700', 'hover:to-purple-700');
+                
+                // Simulate processing (in real app, this would be handled by the backend)
+                setTimeout(() => {
+                    alert('✅ Invitations sent successfully!');
+                }, 2000);
+            });
+
+            // Drag and drop functionality
+            const uploadArea = document.querySelector('form .border-dashed');
+            
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('border-indigo-400', 'bg-indigo-50');
+            });
+
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('border-indigo-400', 'bg-indigo-50');
+            });
+
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('border-indigo-400', 'bg-indigo-50');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    fileInput.files = files;
+                    fileName.textContent = files[0].name;
+                    fileName.className = 'text-sm text-green-600 font-semibold mt-3';
+                }
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(UPLOAD_HTML)
+
+@app.route('/dashboard')
+def admin_dashboard():
+    """Enhanced Admin Dashboard with Time Range Filters and Exceeded Status"""
+    # Get filter parameters
+    time_filter = request.args.get('time_filter', 'today')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    start_time = request.args.get('start_time', '00:00')
+    end_time = request.args.get('end_time', '23:59')
+    chart_type = request.args.get('chart_type', 'all')
+    
+    analytics = get_visitor_analytics(time_filter, start_date, end_date, start_time, end_time)
+    
+    DASHBOARD_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>VMS Analytics Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+            .metric-card {
+                transition: all 0.3s ease;
+                border-left: 4px solid;
+            }
+            .metric-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            }
+            .chart-container {
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            }
+            .filter-active {
+                background-color: #3B82F6;
+                color: white;
+            }
+            .tab-active {
+                border-bottom: 3px solid #3B82F6;
+                color: #3B82F6;
+                font-weight: 600;
+            }
+            .time-exceeded {
+                background: linear-gradient(135deg, #EF4444, #DC2626);
+                color: white;
+            }
+        </style>
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+        <!-- Header -->
+        <div class="bg-white shadow-sm border-b">
+            <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="flex justify-between items-center py-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">Visitor Management Analytics</h1>
+                        <p class="text-sm text-gray-600">Comprehensive visitor insights with time range filters</p>
+                    </div>
+                    <a href="/visitors" class="text-blue-600 hover:text-blue-800 font-medium flex items-center">
+                        <i class="fas fa-users mr-2"></i>View Visitors
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-8xl mx-auto py-6 sm:px-6 lg:px-8">
+            <!-- Time Period Selector -->
+            <div class="bg-white rounded-xl shadow p-6 mb-8">
+                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
+                    <div>
+                        <h2 class="text-lg font-semibold text-gray-900">Analytics Overview</h2>
+                        <p class="text-sm text-gray-600" id="filterDescription">{{ analytics.filter_description }}</p>
+                    </div>
+                    
+                    <div class="flex flex-col gap-4 w-full lg:w-auto">
+                        <!-- Quick Time Filters -->
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="applyTimeFilter('today')" 
+                                    class="px-3 py-2 text-sm rounded-lg transition {{ 'filter-active' if time_filter == 'today' else 'bg-gray-100 hover:bg-gray-200' }}">
+                                Today
+                            </button>
+                            <button onclick="applyTimeFilter('week')" 
+                                    class="px-3 py-2 text-sm rounded-lg transition {{ 'filter-active' if time_filter == 'week' else 'bg-gray-100 hover:bg-gray-200' }}">
+                                This Week
+                            </button>
+                            <button onclick="applyTimeFilter('month')" 
+                                    class="px-3 py-2 text-sm rounded-lg transition {{ 'filter-active' if time_filter == 'month' else 'bg-gray-100 hover:bg-gray-200' }}">
+                                This Month
+                            </button>
+                            <button onclick="applyTimeFilter('year')" 
+                                    class="px-3 py-2 text-sm rounded-lg transition {{ 'filter-active' if time_filter == 'year' else 'bg-gray-100 hover:bg-gray-200' }}">
+                                This Year
+                            </button>
+                            <button onclick="applyTimeFilter('all')" 
+                                    class="px-3 py-2 text-sm rounded-lg transition {{ 'filter-active' if time_filter == 'all' else 'bg-gray-100 hover:bg-gray-200' }}">
+                                All Time
+                            </button>
+                        </div>
+                        
+                        <!-- Date and Time Range -->
+                        <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                            <!-- Date Range -->
+                            <div class="flex items-center gap-2">
+                                <input type="date" id="startDate" value="{{ start_date }}" 
+                                       class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                <span class="text-gray-500">to</span>
+                                <input type="date" id="endDate" value="{{ end_date }}" 
+                                       class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            
+                            <!-- Time Range -->
+                            <div class="flex items-center gap-2">
+                                <input type="time" id="startTime" value="{{ start_time }}" 
+                                       class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                                <span class="text-gray-500">to</span>
+                                <input type="time" id="endTime" value="{{ end_time }}" 
+                                       class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500">
+                            </div>
+                            
+                            <button onclick="applyCustomRange()" 
+                                    class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition text-sm">
+                                Apply Filters
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Chart Type Tabs -->
+                <div class="mt-6 border-b border-gray-200">
+                    <div class="flex space-x-8">
+                        <button onclick="setChartType('all')" 
+                                class="py-2 px-1 text-sm font-medium {{ 'tab-active' if chart_type == 'all' else 'text-gray-500 hover:text-gray-700' }}">
+                            All Charts
+                        </button>
+                        <button onclick="setChartType('purpose')" 
+                                class="py-2 px-1 text-sm font-medium {{ 'tab-active' if chart_type == 'purpose' else 'text-gray-500 hover:text-gray-700' }}">
+                            Purpose Analysis
+                        </button>
+                        <button onclick="setChartType('status')" 
+                                class="py-2 px-1 text-sm font-medium {{ 'tab-active' if chart_type == 'status' else 'text-gray-500 hover:text-gray-700' }}">
+                            Status Overview
+                        </button>
+                        <button onclick="setChartType('department')" 
+                                class="py-2 px-1 text-sm font-medium {{ 'tab-active' if chart_type == 'department' else 'text-gray-500 hover:text-gray-700' }}">
+                            Department View
+                        </button>
+                        <button onclick="setChartType('trends')" 
+                                class="py-2 px-1 text-sm font-medium {{ 'tab-active' if chart_type == 'trends' else 'text-gray-500 hover:text-gray-700' }}">
+                            Trends
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Total Visitors in Period -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-blue-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 p-3 bg-blue-100 rounded-lg">
+                                <i class="fas fa-users text-blue-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Visitors in Period</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ analytics.period_visitors }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        Selected time range
+                    </div>
+                </div>
+
+                <!-- Active Now -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-green-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 p-3 bg-green-100 rounded-lg">
+                                <i class="fas fa-user-check text-green-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Currently Active</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ analytics.currently_checked_in }}</p>
+                            </div>
+                        </div>
+                        <div class="text-green-500">
+                            <i class="fas fa-circle animate-pulse"></i>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        Visitors on premises
+                    </div>
+                </div>
+
+                <!-- Time Exceeded -->
+                <div class="metric-card time-exceeded rounded-xl p-6 border-l-red-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 p-3 bg-red-100 rounded-lg">
+                                <i class="fas fa-clock text-red-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-white">Time Exceeded</p>
+                                <p class="text-2xl font-bold text-white">{{ analytics.time_exceeded_count }}</p>
+                            </div>
+                        </div>
+                        <div class="text-white">
+                            <i class="fas fa-exclamation-triangle"></i>
+                        </div>
+                    </div>
+                    <div class="text-xs text-red-100">
+                        Visitors exceeded duration
+                    </div>
+                </div>
+
+                <!-- Checked Out -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-purple-500">
+                    <div class="flex items-center justify-between mb-4">
+                        <div class="flex items-center">
+                            <div class="flex-shrink-0 p-3 bg-purple-100 rounded-lg">
+                                <i class="fas fa-calendar-check text-purple-600 text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <p class="text-sm font-medium text-gray-600">Completed Visits</p>
+                                <p class="text-2xl font-bold text-gray-900">{{ analytics.checked_out_count }}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        Successful visits in period
+                    </div>
+                </div>
+            </div>
+
+            <!-- Second Row Stats -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <!-- Avg Visit Duration -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-orange-500">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 p-3 bg-orange-100 rounded-lg">
+                            <i class="fas fa-clock text-orange-600 text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Avg Visit Duration</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ analytics.avg_visit_duration }}</p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2">
+                        Average time spent
+                    </div>
+                </div>
+
+                <!-- Peak Hour -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-indigo-500">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 p-3 bg-indigo-100 rounded-lg">
+                            <i class="fas fa-chart-line text-indigo-600 text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Peak Hour</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ analytics.peak_hour }}</p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2">
+                        Most active time
+                    </div>
+                </div>
+
+                <!-- Blacklisted -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-red-500">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 p-3 bg-red-100 rounded-lg">
+                            <i class="fas fa-ban text-red-600 text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Blacklisted</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ analytics.blacklisted_count }}</p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2">
+                        Restricted visitors
+                    </div>
+                </div>
+
+                <!-- Multiple Visits -->
+                <div class="metric-card bg-white rounded-xl p-6 border-l-pink-500">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0 p-3 bg-pink-100 rounded-lg">
+                            <i class="fas fa-redo text-pink-600 text-xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-gray-600">Multiple Visits</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ analytics.multiple_visits_count }}</p>
+                        </div>
+                    </div>
+                    <div class="text-xs text-gray-500 mt-2">
+                        2+ visits in period
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section - Dynamic based on selected tab -->
+            <div id="allCharts" class="{{ 'block' if chart_type == 'all' else 'hidden' }}">
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                    <!-- Purpose Distribution -->
+                    <div class="chart-container p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold text-gray-900">Visit Purpose Distribution</h3>
+                            <div class="text-sm text-gray-500 flex items-center">
+                                <i class="fas fa-chart-pie mr-2"></i>
+                                {{ analytics.filter_description }}
+                            </div>
+                        </div>
+                        <div class="h-80">
+                            <canvas id="purposeChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Status Distribution -->
+                    <div class="chart-container p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold text-gray-900">Visitor Status Overview</h3>
+                            <div class="text-sm text-gray-500 flex items-center">
+                                <i class="fas fa-chart-bar mr-2"></i>
+                                {{ analytics.filter_description }}
+                            </div>
+                        </div>
+                        <div class="h-80">
+                            <canvas id="statusChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Additional Charts Row -->
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-8 mb-8">
+                    <!-- Department Distribution -->
+                    <div class="chart-container p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold text-gray-900">Department-wise Visitors</h3>
+                            <div class="text-sm text-gray-500 flex items-center">
+                                <i class="fas fa-sitemap mr-2"></i>
+                                {{ analytics.filter_description }}
+                            </div>
+                        </div>
+                        <div class="h-80">
+                            <canvas id="departmentChart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Hourly Distribution -->
+                    <div class="chart-container p-6">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="text-lg font-semibold text-gray-900">Hourly Visitor Distribution</h3>
+                            <div class="text-sm text-gray-500 flex items-center">
+                                <i class="fas fa-chart-line mr-2"></i>
+                                {{ analytics.filter_description }}
+                            </div>
+                        </div>
+                        <div class="h-80">
+                            <canvas id="hourlyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Individual Chart Views -->
+            <div id="purposeChartView" class="{{ 'block' if chart_type == 'purpose' else 'hidden' }}">
+                <div class="chart-container p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900">Visit Purpose Analysis</h3>
+                        <div class="text-sm text-gray-500 flex items-center">
+                            <i class="fas fa-chart-pie mr-2"></i>
+                            {{ analytics.filter_description }}
+                        </div>
+                    </div>
+                    <div class="h-96">
+                        <canvas id="purposeChartSingle"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="statusChartView" class="{{ 'block' if chart_type == 'status' else 'hidden' }}">
+                <div class="chart-container p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900">Visitor Status Analysis</h3>
+                        <div class="text-sm text-gray-500 flex items-center">
+                            <i class="fas fa-chart-bar mr-2"></i>
+                            {{ analytics.filter_description }}
+                        </div>
+                    </div>
+                    <div class="h-96">
+                        <canvas id="statusChartSingle"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="departmentChartView" class="{{ 'block' if chart_type == 'department' else 'hidden' }}">
+                <div class="chart-container p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900">Department Visitor Analysis</h3>
+                        <div class="text-sm text-gray-500 flex items-center">
+                            <i class="fas fa-sitemap mr-2"></i>
+                            {{ analytics.filter_description }}
+                        </div>
+                    </div>
+                    <div class="h-96">
+                        <canvas id="departmentChartSingle"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div id="trendsChartView" class="{{ 'block' if chart_type == 'trends' else 'hidden' }}">
+                <div class="chart-container p-6">
+                    <div class="flex justify-between items-center mb-6">
+                        <h3 class="text-lg font-semibold text-gray-900">Time-based Visitor Analysis</h3>
+                        <div class="text-sm text-gray-500 flex items-center">
+                            <i class="fas fa-chart-line mr-2"></i>
+                            {{ analytics.filter_description }}
+                        </div>
+                    </div>
+                    <div class="h-96">
+                        <canvas id="trendsChartSingle"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Activity & Time Exceeded Visitors -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 mt-8">
+                <!-- Recent Activity -->
+                <div class="chart-container p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-6">Recent Check-ins</h3>
+                    <div class="space-y-4">
+                        {% for activity in analytics.recent_activities %}
+                        <div class="flex items-center space-x-4 p-3 bg-gray-50 rounded-lg">
+                            <div class="flex-shrink-0">
+                                <div class="h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                                    {{ activity.visitor_name[0]|upper if activity.visitor_name else '?' }}
+                                </div>
+                            </div>
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-900">{{ activity.visitor_name or 'Unknown' }}</p>
+                                <p class="text-sm text-gray-500">{{ activity.purpose or 'No purpose specified' }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-medium text-gray-900">{{ activity.status or 'Unknown' }}</p>
+                                <p class="text-xs text-gray-400">{{ activity.time or 'Recently' }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Time Exceeded Visitors -->
+                <div class="chart-container p-6">
+                    <h3 class="text-lg font-semibold text-gray-900 mb-6">Time Exceeded Visitors</h3>
+                    <div class="space-y-4">
+                        {% for visitor in analytics.time_exceeded_visitors %}
+                        <div class="flex items-center justify-between p-3 bg-red-50 rounded-lg border border-red-200">
+                            <div class="flex items-center space-x-3">
+                                <div class="flex-shrink-0">
+                                    <div class="h-10 w-10 bg-gradient-to-r from-red-500 to-orange-600 rounded-full flex items-center justify-center text-white font-bold">
+                                        {{ visitor.name[0]|upper if visitor.name else '?' }}
+                                    </div>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-gray-900">{{ visitor.name or 'Unknown' }}</p>
+                                    <p class="text-xs text-red-600 font-semibold">Exceeded by {{ visitor.exceeded_by }}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-sm font-bold text-red-600">{{ visitor.duration }}</p>
+                                <p class="text-xs text-gray-400">Expected: {{ visitor.expected_duration }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                        {% if not analytics.time_exceeded_visitors %}
+                        <div class="text-center py-8 text-gray-500">
+                            <i class="fas fa-check-circle text-2xl mb-2"></i>
+                            <p>No time exceeded visitors</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            // Initialize all charts
+            document.addEventListener('DOMContentLoaded', function() {
+                initializeCharts();
+            });
+
+            function initializeCharts() {
+                // Purpose Distribution Chart
+                initializePurposeChart('purposeChart');
+                initializePurposeChart('purposeChartSingle');
+                
+                // Status Distribution Chart
+                initializeStatusChart('statusChart');
+                initializeStatusChart('statusChartSingle');
+                
+                // Department Distribution Chart
+                initializeDepartmentChart('departmentChart');
+                initializeDepartmentChart('departmentChartSingle');
+                
+                // Hourly Distribution Chart
+                initializeHourlyChart('hourlyChart');
+                initializeHourlyChart('trendsChartSingle');
+            }
+
+            function initializePurposeChart(canvasId) {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                new Chart(ctx, {
+                    type: 'doughnut',
+                    data: {
+                        labels: {{ analytics.purpose_categories.keys()|list|tojson }},
+                        datasets: [{
+                            data: {{ analytics.purpose_categories.values()|list|tojson }},
+                            backgroundColor: [
+                                '#3B82F6', // Meetings - Blue
+                                '#10B981', // Interviews - Green
+                                '#8B5CF6', // Employee Meetings - Purple
+                                '#F59E0B', // Deliveries - Orange
+                                '#EF4444', // Maintenance - Red
+                                '#06B6D4'  // Other - Cyan
+                            ],
+                            borderWidth: 3,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: getChartOptions('Purpose Distribution')
+                });
+            }
+
+            function initializeStatusChart(canvasId) {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: {{ analytics.status_distribution.keys()|list|tojson }},
+                        datasets: [{
+                            label: 'Number of Visitors',
+                            data: {{ analytics.status_distribution.values()|list|tojson }},
+                            backgroundColor: [
+                                '#3B82F6', // Registered - Blue
+                                '#10B981', // Approved - Green
+                                '#8B5CF6', // Checked-In - Purple
+                                '#F59E0B', // Checked-Out - Orange
+                                '#EF4444', // Time Exceeded - Red
+                                '#06B6D4', // Rescheduled - Cyan
+                                '#84CC16'  // Rejected - Lime
+                            ],
+                            borderColor: [
+                                '#1D4ED8', '#047857', '#7C3AED', '#D97706', 
+                                '#DC2626', '#0891B2', '#65A30D'
+                            ],
+                            borderWidth: 1,
+                            borderRadius: 4
+                        }]
+                    },
+                    options: getChartOptions('Status Distribution', true)
+                });
+            }
+
+            function initializeDepartmentChart(canvasId) {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                new Chart(ctx, {
+                    type: 'pie',
+                    data: {
+                        labels: {{ analytics.department_distribution.keys()|list|tojson }},
+                        datasets: [{
+                            data: {{ analytics.department_distribution.values()|list|tojson }},
+                            backgroundColor: [
+                                '#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', 
+                                '#EF4444', '#06B6D4', '#84CC16', '#F97316'
+                            ],
+                            borderWidth: 2,
+                            borderColor: '#fff'
+                        }]
+                    },
+                    options: getChartOptions('Department Distribution')
+                });
+            }
+
+            function initializeHourlyChart(canvasId) {
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: {{ analytics.hourly_distribution.labels|tojson }},
+                        datasets: [{
+                            label: 'Visitors',
+                            data: {{ analytics.hourly_distribution.data|tojson }},
+                            borderColor: '#3B82F6',
+                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                            borderWidth: 3,
+                            fill: true,
+                            tension: 0.4,
+                            pointBackgroundColor: '#3B82F6',
+                            pointBorderColor: '#fff',
+                            pointBorderWidth: 2,
+                            pointRadius: 4
+                        }]
+                    },
+                    options: getChartOptions('Hourly Visitor Distribution', true)
+                });
+            }
+
+            function getChartOptions(title, showGrid = false) {
+                return {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: {
+                                padding: 20,
+                                usePointStyle: true,
+                                font: { size: 11 }
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: title,
+                            font: { size: 16, weight: 'bold' }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    },
+                    scales: showGrid ? {
+                        y: {
+                            beginAtZero: true,
+                            ticks: { stepSize: 1 },
+                            grid: { drawBorder: false }
+                        },
+                        x: {
+                            grid: { display: false }
+                        }
+                    } : {}
+                };
+            }
+
+            // Filter Functions
+            function applyTimeFilter(filter) {
+                const params = new URLSearchParams();
+                params.append('time_filter', filter);
+                params.append('chart_type', '{{ chart_type }}');
+                // Preserve time range if set
+                const startTime = document.getElementById('startTime').value;
+                const endTime = document.getElementById('endTime').value;
+                if (startTime && endTime) {
+                    params.append('start_time', startTime);
+                    params.append('end_time', endTime);
+                }
+                window.location.href = `${window.location.pathname}?${params.toString()}`;
+            }
+
+            function applyCustomRange() {
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const startTime = document.getElementById('startTime').value;
+                const endTime = document.getElementById('endTime').value;
+                
+                if (!startDate || !endDate) {
+                    alert('Please select both start and end dates');
+                    return;
+                }
+                
+                const params = new URLSearchParams();
+                params.append('time_filter', 'custom');
+                params.append('start_date', startDate);
+                params.append('end_date', endDate);
+                params.append('start_time', startTime);
+                params.append('end_time', endTime);
+                params.append('chart_type', '{{ chart_type }}');
+                window.location.href = `${window.location.pathname}?${params.toString()}`;
+            }
+
+            function setChartType(type) {
+                const params = new URLSearchParams(window.location.search);
+                params.set('chart_type', type);
+                window.location.href = `${window.location.pathname}?${params.toString()}`;
+            }
+
+            function refreshData() {
+                location.reload();
+            }
+
+            // Set default time values if not set
+            document.addEventListener('DOMContentLoaded', function() {
+                const startTime = document.getElementById('startTime');
+                const endTime = document.getElementById('endTime');
+                
+                if (!startTime.value) startTime.value = '00:00';
+                if (!endTime.value) endTime.value = '23:59';
+            });
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(DASHBOARD_HTML, analytics=analytics, time_filter=time_filter, 
+                                start_date=start_date, end_date=end_date, start_time=start_time, 
+                                end_time=end_time, chart_type=chart_type)
+
+def get_visitor_analytics(time_filter='today', start_date=None, end_date=None, start_time='00:00', end_time='23:59'):
+    """Generate comprehensive analytics data from Firebase database with time range filters"""
+    visitors_ref = db.reference('visitors')
+    employees_ref = db.reference('employees')  # Add employees reference
+    
+    all_visitors = visitors_ref.get() or {}
+    all_employees = employees_ref.get() or {}  # Get employees data
+    
+    today = datetime.now().strftime('%Y-%m-%d')
+    current_time = datetime.now()
+    
+    # Calculate date ranges based on filter
+    date_range = calculate_date_range(time_filter, start_date, end_date, start_time, end_time)
+    start_datetime = date_range['start_datetime']
+    end_datetime = date_range['end_datetime']
+    filter_description = date_range['description']
+    
+    # Initialize counters
+    total_visitors = len(all_visitors)
+    currently_checked_in = 0
+    blacklisted_count = 0
+    period_visitors = 0
+    checked_out_count = 0
+    pending_count = 0
+    multiple_visits_count = 0
+    time_exceeded_count = 0
+    
+    # Purpose categorization
+    purpose_categories = {
+        'Meetings': 0,
+        'Interviews': 0,
+        'Employee Meetings': 0,
+        'Deliveries': 0,
+        'Maintenance': 0,
+        'Other': 0
+    }
+    
+    # Status distribution (including Time Exceeded)
+    status_distribution = {
+        'Registered': 0,
+        'Approved': 0,
+        'Checked-In': 0,
+        'Checked-Out': 0,
+        'Time Exceeded': 0,
+        'Rescheduled': 0,
+        'Rejected': 0
+    }
+    
+    # Department distribution - initialize with actual departments from employees
+    department_distribution = {}
+    department_employee_map = {}  # Track department -> employee -> visit count
+    
+    # Hourly distribution
+    hourly_distribution = {'labels': [], 'data': []}
+    for hour in range(24):
+        hourly_distribution['labels'].append(f"{hour:02d}:00")
+        hourly_distribution['data'].append(0)
+    
+    # Visit counts for recurring visitors
+    visitor_visit_counts = {}
+    recent_activities = []
+    frequent_visitors = []
+    time_exceeded_visitors = []
+    
+    # Calculate average duration
+    total_duration_minutes = 0
+    duration_count = 0
+    
+    # Peak hour tracking
+    hourly_counts = {hour: 0 for hour in range(24)}
+    
+    for visitor_id, visitor_data in all_visitors.items():
+        check_in_time_str = visitor_data.get('check_in_time', '')
+        check_in_time = None
+        check_out_time_str = visitor_data.get('check_out_time', '')
+        check_out_time = None
+        
+        # Parse check-in time
+        if check_in_time_str and check_in_time_str != 'N/A':
+            try:
+                check_in_time = datetime.strptime(check_in_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                pass
+        
+        # Parse check-out time
+        if check_out_time_str and check_out_time_str != 'N/A':
+            try:
+                check_out_time = datetime.strptime(check_out_time_str, '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                pass
+        
+        # Check if visitor is in selected period (considering time range)
+        in_period = False
+        if check_in_time:
+            # Check if within date and time range
+            in_period = (start_datetime <= check_in_time <= end_datetime)
+            
+            # Update hourly distribution
+            if in_period:
+                hour = check_in_time.hour
+                hourly_counts[hour] += 1
+                hourly_distribution['data'][hour] += 1
+        
+        # Basic counts
+        status = visitor_data.get('status', 'Registered')
+        
+        # Check for time exceeded
+        is_time_exceeded = False
+        expected_checkout_str = visitor_data.get('expected_checkout_time', '')
+        if status == 'Checked-In' and expected_checkout_str and expected_checkout_str != 'N/A':
+            try:
+                expected_checkout = datetime.strptime(expected_checkout_str, '%Y-%m-%d %H:%M:%S')
+                if current_time > expected_checkout:
+                    is_time_exceeded = True
+                    status = 'Time Exceeded'
+                    time_exceeded_count += 1
+                    
+                    # Calculate exceeded time
+                    exceeded_minutes = int((current_time - expected_checkout).total_seconds() / 60)
+                    exceeded_hours = exceeded_minutes // 60
+                    exceeded_remaining_minutes = exceeded_minutes % 60
+                    
+                    if exceeded_hours > 0:
+                        exceeded_by = f"{exceeded_hours}h {exceeded_remaining_minutes}m"
+                    else:
+                        exceeded_by = f"{exceeded_minutes}m"
+                    
+                    time_exceeded_visitors.append({
+                        'name': visitor_data.get('name', 'Unknown'),
+                        'duration': visitor_data.get('duration', 'Unknown'),
+                        'expected_duration': visitor_data.get('expected_duration', 'Unknown'),
+                        'exceeded_by': exceeded_by
+                    })
+            except ValueError:
+                pass
+        
+        status_distribution[status] = status_distribution.get(status, 0) + 1
+        
+        if status == 'Checked-In' and not is_time_exceeded:
+            currently_checked_in += 1
+        
+        if status == 'Checked-Out' and in_period:
+            checked_out_count += 1
+        
+        if status in ['Registered', 'Approved'] and in_period:
+            pending_count += 1
+        
+        # Count visitors in period
+        if in_period:
+            period_visitors += 1
+        
+        # Blacklisted count
+        blacklisted = visitor_data.get('blacklisted', False)
+        if isinstance(blacklisted, str):
+            if blacklisted.strip().lower() in ['yes', 'true', '1']:
+                blacklisted_count += 1
+        elif blacklisted:
+            blacklisted_count += 1
+        
+        # Purpose categorization
+        purpose = visitor_data.get('purpose', '').lower()
+        if 'meeting' in purpose:
+            if 'employee' in purpose or 'with' in purpose:
+                purpose_categories['Employee Meetings'] += 1
+            else:
+                purpose_categories['Meetings'] += 1
+        elif 'interview' in purpose:
+            purpose_categories['Interviews'] += 1
+        elif 'delivery' in purpose:
+            purpose_categories['Deliveries'] += 1
+        elif 'maintenance' in purpose:
+            purpose_categories['Maintenance'] += 1
+        else:
+            purpose_categories['Other'] += 1
+        
+        # UPDATED: Department distribution - get actual department from employees table
+        employee_name = visitor_data.get('employee_name', '')
+        department = 'General'
+        employee_found = False
+        
+        if employee_name and employee_name != 'N/A':
+            # Look up department from employees table
+            for emp_id, emp_data in all_employees.items():
+                emp_name = emp_data.get('name', '')
+                if emp_name and emp_name.strip().lower() == employee_name.strip().lower():
+                    department = emp_data.get('department', 'General')
+                    employee_found = True
+                    break
+            
+            # If exact match not found, try partial matching
+            if not employee_found:
+                for emp_id, emp_data in all_employees.items():
+                    emp_name = emp_data.get('name', '')
+                    if emp_name and (employee_name.lower() in emp_name.lower() or emp_name.lower() in employee_name.lower()):
+                        department = emp_data.get('department', 'General')
+                        employee_found = True
+                        break
+            
+            # If still not found, use fallback logic
+            if not employee_found:
+                if 'HR' in employee_name.upper() or 'human' in employee_name.lower():
+                    department = 'HR'
+                elif 'IT' in employee_name.upper() or 'tech' in employee_name.lower():
+                    department = 'IT'
+                elif 'CSE' in employee_name.upper():
+                    department = 'CSE'
+                elif 'sales' in employee_name.lower():
+                    department = 'Sales'
+                elif 'manager' in employee_name.lower() or 'management' in employee_name.lower():
+                    department = 'Management'
+                elif 'operations' in employee_name.lower():
+                    department = 'Operations'
+                else:
+                    department = employee_name.split()[-1] if ' ' in employee_name else employee_name
+        
+        if in_period:
+            department_distribution[department] = department_distribution.get(department, 0) + 1
+            
+            # Track which employees received visitors
+            if employee_found and employee_name:
+                if department not in department_employee_map:
+                    department_employee_map[department] = {}
+                department_employee_map[department][employee_name] = department_employee_map[department].get(employee_name, 0) + 1
+        
+        # Visit count for recurring visitors
+        visitor_name = visitor_data.get('name', 'Unknown')
+        if visitor_name and visitor_name != 'N/A':
+            visitor_visit_counts[visitor_name] = visitor_visit_counts.get(visitor_name, 0) + 1
+        
+        # Recent activities (filtered by period)
+        if in_period and status in ['Checked-In', 'Checked-Out', 'Time Exceeded'] and check_in_time_str:
+            recent_activities.append({
+                'visitor_name': visitor_data.get('name', 'Unknown'),
+                'purpose': visitor_data.get('purpose', 'No purpose specified'),
+                'status': status,
+                'time': check_in_time_str
+            })
+        
+        # Calculate duration for average
+        if in_period:
+            duration = visitor_data.get('duration', '')
+            if duration:
+                try:
+                    if 'hr' in duration:
+                        hours = int(duration.replace('hr', '').strip())
+                        total_duration_minutes += hours * 60
+                        duration_count += 1
+                except ValueError:
+                    pass
+    
+    # Sort and limit recent activities
+    recent_activities.sort(key=lambda x: x['time'], reverse=True)
+    recent_activities = recent_activities[:5]
+    
+    # Calculate multiple visits in period
+    for visitor_name, count in visitor_visit_counts.items():
+        if count >= 2:
+            # Count how many visits are in the current period
+            period_visit_count = 0
+            last_visit_in_period = None
+            
+            for visitor_id, visitor_data in all_visitors.items():
+                if visitor_data.get('name') == visitor_name:
+                    check_in_time_str = visitor_data.get('check_in_time', '')
+                    if check_in_time_str:
+                        try:
+                            visit_time = datetime.strptime(check_in_time_str, '%Y-%m-%d %H:%M:%S')
+                            if start_datetime <= visit_time <= end_datetime:
+                                period_visit_count += 1
+                                if not last_visit_in_period or visit_time > last_visit_in_period:
+                                    last_visit_in_period = visit_time
+                        except ValueError:
+                            pass
+            
+            if period_visit_count >= 2:
+                multiple_visits_count += 1
+                frequent_visitors.append({
+                    'name': visitor_name,
+                    'visit_count': period_visit_count,
+                    'last_visit': last_visit_in_period.strftime('%Y-%m-%d %H:%M') if last_visit_in_period else 'Unknown'
+                })
+    
+    # Sort frequent visitors by visit count
+    frequent_visitors.sort(key=lambda x: x['visit_count'], reverse=True)
+    frequent_visitors = frequent_visitors[:5]
+    
+    # Calculate average duration
+    avg_duration_minutes = total_duration_minutes / duration_count if duration_count > 0 else 0
+    avg_duration_hours = avg_duration_minutes / 60
+    avg_visit_duration = f"{avg_duration_hours:.1f} hrs" if avg_duration_hours >= 1 else f"{avg_duration_minutes:.0f} mins"
+    
+    # Find peak hour
+    peak_hour_count = max(hourly_counts.values()) if hourly_counts else 0
+    peak_hours = [hour for hour, count in hourly_counts.items() if count == peak_hour_count]
+    peak_hour = f"{peak_hours[0]:02d}:00" if peak_hours else "N/A"
+    
+    # Prepare department analytics
+    department_analytics = []
+    for department, visitor_count in department_distribution.items():
+        employee_visitors = department_employee_map.get(department, {})
+        active_employees = len(employee_visitors)
+        top_employees = sorted(employee_visitors.items(), key=lambda x: x[1], reverse=True)[:3]
+        
+        department_analytics.append({
+            'department': department,
+            'visitor_count': visitor_count,
+            'active_employees': active_employees,
+            'top_employees': top_employees
+        })
+    
+    # Sort departments by visitor count
+    department_analytics.sort(key=lambda x: x['visitor_count'], reverse=True)
+    
+    return {
+        'total_visitors': total_visitors,
+        'currently_checked_in': currently_checked_in,
+        'blacklisted_count': blacklisted_count,
+        'period_visitors': period_visitors,
+        'checked_out_count': checked_out_count,
+        'pending_count': pending_count,
+        'multiple_visits_count': multiple_visits_count,
+        'time_exceeded_count': time_exceeded_count,
+        'avg_visit_duration': avg_visit_duration,
+        'peak_hour': peak_hour,
+        'purpose_categories': purpose_categories,
+        'status_distribution': status_distribution,
+        'department_distribution': department_distribution,
+        'department_analytics': department_analytics,
+        'hourly_distribution': hourly_distribution,
+        'recent_activities': recent_activities,
+        'frequent_visitors': frequent_visitors,
+        'time_exceeded_visitors': time_exceeded_visitors,
+        'filter_description': filter_description
+    }
+
+def calculate_date_range(time_filter, start_date, end_date, start_time='00:00', end_time='23:59'):
+    """Calculate date range based on filter with time support"""
+    from datetime import datetime, timedelta
+    
+    current_time = datetime.now()
+    
+    # Parse time components
+    start_hour, start_minute = map(int, start_time.split(':'))
+    end_hour, end_minute = map(int, end_time.split(':'))
+    
+    if time_filter == 'today':
+        start_datetime = current_time.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        end_datetime = current_time.replace(hour=end_hour, minute=end_minute, second=59, microsecond=999999)
+        time_desc = f" ({start_time} to {end_time})" if start_time != '00:00' or end_time != '23:59' else ""
+        description = f"Today's Data{time_desc}"
+    
+    elif time_filter == 'week':
+        start_datetime = current_time - timedelta(days=current_time.weekday())
+        start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        end_datetime = current_time.replace(hour=end_hour, minute=end_minute, second=59, microsecond=999999)
+        time_desc = f" ({start_time} to {end_time})" if start_time != '00:00' or end_time != '23:59' else ""
+        description = f"This Week's Data{time_desc}"
+    
+    elif time_filter == 'month':
+        start_datetime = current_time.replace(day=1, hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        end_datetime = current_time.replace(hour=end_hour, minute=end_minute, second=59, microsecond=999999)
+        time_desc = f" ({start_time} to {end_time})" if start_time != '00:00' or end_time != '23:59' else ""
+        description = f"This Month's Data{time_desc}"
+    
+    elif time_filter == 'year':
+        start_datetime = current_time.replace(month=1, day=1, hour=start_hour, minute=start_minute, second=0, microsecond=0)
+        end_datetime = current_time.replace(hour=end_hour, minute=end_minute, second=59, microsecond=999999)
+        time_desc = f" ({start_time} to {end_time})" if start_time != '00:00' or end_time != '23:59' else ""
+        description = f"This Year's Data{time_desc}"
+    
+    elif time_filter == 'custom' and start_date and end_date:
+        try:
+            start_datetime = datetime.strptime(start_date, '%Y-%m-%d')
+            start_datetime = start_datetime.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+            end_datetime = datetime.strptime(end_date, '%Y-%m-%d')
+            end_datetime = end_datetime.replace(hour=end_hour, minute=end_minute, second=59, microsecond=999999)
+            time_desc = f" ({start_time} to {end_time})"
+            description = f"Custom Range: {start_datetime.strftime('%b %d, %Y')} to {end_datetime.strftime('%b %d, %Y')}{time_desc}"
+        except ValueError:
+            # Fallback to all time if date parsing fails
+            start_datetime = datetime.min
+            end_datetime = datetime.max
+            description = "All Time Data"
+    
+    else:  # all time
+        start_datetime = datetime.min
+        end_datetime = datetime.max
+        description = "All Time Data"
+    
+    return {
+        'start_datetime': start_datetime,
+        'end_datetime': end_datetime,
+        'description': description
+    }
+@app.route('/upload_invites', methods=['POST'])
+def upload_invites():
+    """Upload Excel of visitor emails and send registration invites."""
+    if 'file' not in request.files:
+        flash('No file part in request')
+        return redirect(url_for('admin_dashboard'))
+
+    file = request.files['file']
+    if not file.filename:
+        flash('No file selected')
+        return redirect(url_for('admin_dashboard'))
+
+    if file.filename.endswith(('.xlsx', '.xls')):
+        filename = os.path.join(app.config['UPLOAD_FOLDER'], file.filename)
+        file.save(filename)
+        df = pd.read_excel(filename)
+        email_column = next((col for col in df.columns if 'email' in col.lower()), None)
+        if not email_column:
+            flash("No 'Email' column found")
+            return redirect(url_for('admin_dashboard'))
+
+        sent = 0
+        for email in df[email_column].dropna().astype(str).unique():
+            if '@' in email and '.' in email:
+                if trigger_invitation(email):
+                    sent += 1
+        flash(f'Sent {sent} invitation(s)')
+        os.remove(filename)
+        return redirect(url_for('admin_dashboard'))
+
+    flash('Invalid file type')
+    return redirect(url_for('admin_dashboard'))
+
+# --------------------------
+# Visitors List (Realtime DB)
+# # --------------------------
+# @app.route('/visitors')
+# def visitors_list():
+#     visitors_ref = db.reference('visitors')
+#     all_visitors = visitors_ref.get()
+#     visitors_data = []
+
+#     now = datetime.now()
+
+#     if all_visitors:
+#         for vid, data in all_visitors.items():
+#             check_in_time = data.get('check_in_time')
+#             expected_checkout = data.get('expected_checkout_time')
+#             status = data.get('status', 'Checked-Out')
+#             exceeded = False
+
+#             # Convert blacklisted field to proper boolean
+#             raw_blacklist = data.get('blacklisted', False)
+#             if isinstance(raw_blacklist, str):
+#                 blacklisted = raw_blacklist.strip().lower() in ['yes', 'true', '1']
+#             else:
+#                 blacklisted = bool(raw_blacklist)
+
+#             # Determine if visitor has exceeded allowed time
+#             if status.lower() == 'checked-in' and check_in_time and expected_checkout:
+#                 try:
+#                     checkout_dt = datetime.strptime(expected_checkout, "%Y-%m-%d %H:%M:%S")
+#                     if now > checkout_dt:
+#                         exceeded = True
+#                 except ValueError:
+#                     pass  # ignore if time format is invalid
+
+#             visitors_data.append({
+#                 'id': vid,
+#                 'unique_id': data.get('unique_id', 'N/A'),
+#                 'name': data.get('name', 'N/A'),
+#                 'contact': data.get('contact', 'N/A'),
+#                 'purpose': data.get('purpose', 'N/A'),
+#                 'status': 'Exceeded' if exceeded else status,
+#                 'blacklisted': blacklisted,
+#                 'blacklist_reason': data.get('blacklist_reason', 'N/A'),
+#                 'transactions': data.get('transactions', {})
+#             })
+
+#     VISITORS_HTML = """
+#     <!DOCTYPE html>
+#     <html lang="en">
+#     <head>
+#         <meta charset="UTF-8">
+#         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#         <title>Visitors List</title>
+#         <script src="https://cdn.tailwindcss.com"></script>
+#         <style>
+#             .status-pill {
+#                 @apply px-3 py-1 rounded-full text-sm font-semibold;
+#             }
+#         </style>
+#         <script>
+#             async function toggleBlacklist(visitorId, isBlacklisted) {
+#                 let reason = '';
+#                 if (!isBlacklisted) {
+#                     reason = prompt("Enter reason for blacklisting this visitor:");
+#                     if (!reason) { alert("Blacklisting cancelled."); return; }
+#                 }
+#                 const response = await fetch(`/blacklist/${visitorId}`, {
+#                     method: 'POST',
+#                     headers: {'Content-Type': 'application/json'},
+#                     body: JSON.stringify({ blacklisted: !isBlacklisted, reason: reason })
+#                 });
+#                 if (response.ok) { location.reload(); }
+#                 else { alert("Error updating blacklist."); }
+#             }
+
+#             function filterVisitors() {
+#                 const filter = document.getElementById('statusFilter').value.toLowerCase();
+#                 const search = document.getElementById('searchInput').value.toLowerCase();
+#                 const rows = document.querySelectorAll('tbody tr');
+
+#                 rows.forEach(row => {
+#                     const status = row.querySelector('[data-status]').innerText.toLowerCase();
+#                     const name = row.querySelector('[data-name]').innerText.toLowerCase();
+#                     let show = true;
+
+#                     if (filter !== 'all' && status !== filter) show = false;
+#                     if (search && !name.includes(search)) show = false;
+
+#                     row.style.display = show ? '' : 'none';
+#                 });
+#             }
+#         </script>
+#     </head>
+#     <body class="min-h-screen bg-gradient-to-br from-blue-50 to-gray-100 p-8">
+
+#         <div class="max-w-7xl mx-auto bg-white rounded-xl shadow-lg p-6">
+#             <h1 class="text-4xl font-bold mb-6 text-center text-blue-800">Visitors Dashboard</h1>
+
+#             <!-- Filters -->
+#             <div class="flex flex-wrap items-center justify-between mb-6">
+#                 <div class="flex space-x-4">
+#                     <input type="text" id="searchInput" placeholder="Search by name..." 
+#                            class="px-4 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-300" 
+#                            onkeyup="filterVisitors()">
+
+#                     <select id="statusFilter" class="px-4 py-2 border rounded-lg shadow-sm focus:ring focus:ring-blue-300"
+#                             onchange="filterVisitors()">
+#                         <option value="all">All</option>
+#                         <option value="checked-in">Checked-In</option>
+#                         <option value="checked-out">Checked-Out</option>
+#                         <option value="exceeded">Exceeded</option>
+#                     </select>
+#                 </div>
+#             </div>
+
+#             <!-- Visitors Table -->
+#             <div class="overflow-x-auto rounded-lg border border-gray-200">
+#                 <table class="min-w-full border-collapse bg-white">
+#                     <thead class="bg-blue-100 text-gray-700 uppercase text-sm font-semibold">
+#                         <tr>
+#                             <th class="border px-4 py-3 text-left">Unique ID</th>
+#                             <th class="border px-4 py-3 text-left">Name</th>
+#                             <th class="border px-4 py-3 text-left">Email</th>
+#                             <th class="border px-4 py-3 text-left">Purpose</th>
+#                             <th class="border px-4 py-3 text-left">Status</th>
+#                             <th class="border px-4 py-3 text-center">Blacklisted</th>
+#                             <th class="border px-4 py-3 text-left">Reason</th>
+#                             <th class="border px-4 py-3 text-left">Transactions</th>
+#                             <th class="border px-4 py-3 text-center">Action</th>
+#                         </tr>
+#                     </thead>
+#                     <tbody>
+#                         {% for visitor in visitors %}
+#                         <tr class="hover:bg-blue-50 transition-colors">
+#                             <td class="border px-4 py-2 font-medium text-gray-800">{{ visitor.unique_id }}</td>
+#                             <td class="border px-4 py-2" data-name>{{ visitor.name }}</td>
+#                             <td class="border px-4 py-2">{{ visitor.contact }}</td>
+#                             <td class="border px-4 py-2">{{ visitor.purpose }}</td>
+#                             <td class="border px-4 py-2 text-center" data-status>
+#                                 {% if visitor.status == 'Checked-In' %}
+#                                     <span class="status-pill bg-green-100 text-green-700">Checked-In</span>
+#                                 {% elif visitor.status == 'Checked-Out' %}
+#                                     <span class="status-pill bg-gray-200 text-gray-700">Checked-Out</span>
+#                                 {% elif visitor.status == 'Exceeded' %}
+#                                     <span class="status-pill bg-red-100 text-red-700">Exceeded</span>
+#                                 {% endif %}
+#                             </td>
+#                             <td class="border px-4 py-2 text-center">
+#                                 {% if visitor.blacklisted %}
+#                                     <span class="status-pill bg-red-200 text-red-700">Yes</span>
+#                                 {% else %}
+#                                     <span class="status-pill bg-green-200 text-green-700">No</span>
+#                                 {% endif %}
+#                             </td>
+#                             <td class="border px-4 py-2">{{ visitor.blacklist_reason if visitor.blacklist_reason != 'N/A' else '-' }}</td>
+#                             <td class="border px-4 py-2">
+#                                 {% if visitor.transactions %}
+#                                     <details class="cursor-pointer text-blue-600">
+#                                         <summary class="underline">View</summary>
+#                                         <ul class="mt-2 text-sm list-disc pl-5">
+#                                             {% for tx_id, tx in visitor.transactions.items() %}
+#                                             <li class="text-gray-600">{{ tx.get('check_in', 'N/A') }} → {{ tx.get('check_out', 'N/A') }} ({{ tx.get('duration_total', 'N/A') }})</li>
+#                                             {% endfor %}
+#                                         </ul>
+#                                     </details>
+#                                 {% else %}
+#                                     <span class="text-gray-400 italic">No transactions</span>
+#                                 {% endif %}
+#                             </td>
+#                             <td class="border px-4 py-2 text-center">
+#                                 {% if visitor.blacklisted %}
+#                                     <button onclick="toggleBlacklist('{{ visitor.id }}', true)" 
+#                                             class="bg-green-500 hover:bg-green-600 text-white font-semibold px-3 py-1 rounded-lg shadow-sm transition">
+#                                         Unblock
+#                                     </button>
+#                                 {% else %}
+#                                     <button onclick="toggleBlacklist('{{ visitor.id }}', false)" 
+#                                             class="bg-red-500 hover:bg-red-600 text-white font-semibold px-3 py-1 rounded-lg shadow-sm transition">
+#                                         Blacklist
+#                                     </button>
+#                                 {% endif %}
+#                             </td>
+#                         </tr>
+#                         {% endfor %}
+#                     </tbody>
+#                 </table>
+#             </div>
+#         </div>
+#     </body>
+#     </html>
+#     """
+#     return render_template_string(VISITORS_HTML, visitors=visitors_data)
+
+
+# @app.route('/visitors')
+# def visitors_list():
+#     visitors_ref = db.reference('visitors')
+#     all_visitors = visitors_ref.get()
+#     visitors_data = []
+
+#     now = datetime.now()
+    
+#     # Get filter parameters from request
+#     search_name = request.args.get('search_name', '').lower()
+#     search_status = request.args.get('search_status', 'all')
+#     start_date = request.args.get('start_date', '')
+#     end_date = request.args.get('end_date', '')
+
+#     if all_visitors:
+#         for vid, data in all_visitors.items():
+#             check_in_time = data.get('check_in_time')
+#             expected_checkout = data.get('expected_checkout_time')
+#             status = data.get('status', 'Registered')
+#             exceeded = False
+
+#             # Convert blacklisted field to proper boolean
+#             raw_blacklist = data.get('blacklisted', False)
+#             if isinstance(raw_blacklist, str):
+#                 blacklisted = raw_blacklist.strip().lower() in ['yes', 'true', '1']
+#             else:
+#                 blacklisted = bool(raw_blacklist)
+
+#             # Determine if visitor has exceeded allowed time (only for checked-in visitors)
+#             if status.lower() == 'checked-in' and check_in_time and expected_checkout:
+#                 try:
+#                     checkout_dt = datetime.strptime(expected_checkout, "%Y-%m-%d %H:%M:%S")
+#                     if now > checkout_dt:
+#                         exceeded = True
+#                 except ValueError:
+#                     pass
+
+#             # Calculate number of visits from transactions
+#             transactions = data.get('transactions', {})
+#             num_visits = len(transactions) if isinstance(transactions, dict) else 0
+            
+#             # Get visit_date from database
+#             visit_date = data.get('visit_date', 'N/A')
+            
+#             # Use visitor ID as unique_id
+#             unique_id = vid
+            
+#             # Get blacklist reason
+#             blacklist_reason = data.get('blacklist_reason', 'No reason provided')
+
+#             visitors_data.append({
+#                 'id': vid,
+#                 'unique_id': unique_id,
+#                 'name': data.get('name', 'N/A'),
+#                 'contact': data.get('contact', 'N/A'),
+#                 'purpose': data.get('purpose', 'N/A'),
+#                 'status': status,
+#                 'exceeded': exceeded,
+#                 'blacklisted': blacklisted,
+#                 'blacklist_reason': blacklist_reason,
+#                 'transactions': transactions,
+#                 'visit_date': visit_date,
+#                 'num_visits': num_visits,
+#                 'check_in_time': check_in_time,
+#                 'expected_checkout_time': expected_checkout,
+#                 'registered_at': data.get('registered_at', 'N/A'),
+#                 'employee_name': data.get('employee_name', 'N/A'),
+#                 'duration': data.get('duration', 'N/A'),
+#                 'photo_path': data.get('photo_path', 'N/A'),
+#                 'profile_link': data.get('profile_link', 'N/A')
+#             })
+
+#     # Apply filters
+#     filtered_visitors = []
+#     for visitor in visitors_data:
+#         include_visitor = True
+        
+#         # Filter by name search
+#         if search_name and search_name not in visitor['name'].lower():
+#             include_visitor = False
+        
+#         # Filter by status
+#         if search_status != 'all' and search_status != visitor['status'].lower().replace(' ', '_').replace('-', '_'):
+#             include_visitor = False
+        
+#         # Filter by date range
+#         if start_date and end_date and visitor['visit_date'] != 'N/A':
+#             try:
+#                 visit_dt = datetime.strptime(visitor['visit_date'], "%Y-%m-%d")
+#                 start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+#                 end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+#                 if not (start_dt <= visit_dt <= end_dt):
+#                     include_visitor = False
+#             except ValueError:
+#                 pass
+        
+#         if include_visitor:
+#             filtered_visitors.append(visitor)
+
+#     # Calculate comprehensive statistics
+#     total_visitors = len(filtered_visitors)
+#     registered_count = sum(1 for v in filtered_visitors if v['status'] == 'Registered')
+#     approved_count = sum(1 for v in filtered_visitors if v['status'] == 'Approved')
+#     checked_in_count = sum(1 for v in filtered_visitors if v['status'] == 'Checked-In')
+#     checked_out_count = sum(1 for v in filtered_visitors if v['status'] == 'Checked-Out')
+#     rescheduled_count = sum(1 for v in filtered_visitors if v['status'] == 'Rescheduled')
+#     rejected_count = sum(1 for v in filtered_visitors if v['status'] == 'Rejected')
+#     exceeded_count = sum(1 for v in filtered_visitors if v['exceeded'])
+#     blacklisted_count = sum(1 for v in filtered_visitors if v['blacklisted'])
+    
+#     # Calculate percentages
+#     status_distribution = {
+#         'registered': (registered_count / total_visitors * 100) if total_visitors > 0 else 0,
+#         'approved': (approved_count / total_visitors * 100) if total_visitors > 0 else 0,
+#         'checked_in': (checked_in_count / total_visitors * 100) if total_visitors > 0 else 0,
+#         'checked_out': (checked_out_count / total_visitors * 100) if total_visitors > 0 else 0,
+#         'rescheduled': (rescheduled_count / total_visitors * 100) if total_visitors > 0 else 0,
+#         'rejected': (rejected_count / total_visitors * 100) if total_visitors > 0 else 0,
+#     }
+
+#     VISITORS_HTML = """
+#     <!DOCTYPE html>
+#     <html lang="en">
+#     <head>
+#         <meta charset="UTF-8">
+#         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#         <title>Visitor Management Analytics | Admin Dashboard</title>
+#         <script src="https://cdn.tailwindcss.com"></script>
+#         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+#         <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+#         <style>
+#             .glass-card {
+#                 background: rgba(255, 255, 255, 0.9);
+#                 backdrop-filter: blur(10px);
+#                 border: 1px solid rgba(255, 255, 255, 0.2);
+#             }
+#             .status-badge {
+#                 @apply px-3 py-1 rounded-full text-xs font-semibold capitalize;
+#             }
+#             .metric-card {
+#                 transition: all 0.3s ease;
+#                 border-left: 4px solid;
+#             }
+#             .metric-card:hover {
+#                 transform: translateY(-2px);
+#                 box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+#             }
+#             .progress-bar {
+#                 height: 6px;
+#                 border-radius: 3px;
+#                 overflow: hidden;
+#                 background: #e5e7eb;
+#             }
+#             .progress-fill {
+#                 height: 100%;
+#                 transition: width 0.5s ease-in-out;
+#             }
+#             .fade-in {
+#                 animation: fadeIn 0.5s ease-in;
+#             }
+#             @keyframes fadeIn {
+#                 from { opacity: 0; transform: translateY(10px); }
+#                 to { opacity: 1; transform: translateY(0); }
+#             }
+#         </style>
+#         <script>
+#             async function toggleBlacklist(visitorId, currentState) {
+#                 let reason = '';
+#                 const newState = !currentState;
+                
+#                 if (newState) {
+#                     reason = prompt("Enter reason for blacklisting this visitor:");
+#                     if (!reason) { 
+#                         return; 
+#                     }
+#                 }
+                
+#                 try {
+#                     const response = await fetch(`/blacklist/${visitorId}`, {
+#                         method: 'POST',
+#                         headers: {'Content-Type': 'application/json'},
+#                         body: JSON.stringify({ 
+#                             blacklisted: newState, 
+#                             reason: reason 
+#                         })
+#                     });
+                    
+#                     if (response.ok) { 
+#                         location.reload(); 
+#                     } else { 
+#                         throw new Error('Update failed');
+#                     }
+#                 } catch (error) {
+#                     alert("Error updating blacklist status.");
+#                 }
+#             }
+
+#             function applyFilters() {
+#                 const searchName = document.getElementById('searchInput').value;
+#                 const searchStatus = document.getElementById('statusFilter').value;
+#                 const startDate = document.getElementById('startDate').value;
+#                 const endDate = document.getElementById('endDate').value;
+                
+#                 const params = new URLSearchParams();
+#                 if (searchName) params.append('search_name', searchName);
+#                 if (searchStatus !== 'all') params.append('search_status', searchStatus);
+#                 if (startDate) params.append('start_date', startDate);
+#                 if (endDate) params.append('end_date', endDate);
+                
+#                 window.location.href = `${window.location.pathname}?${params.toString()}`;
+#             }
+
+#             function clearFilters() {
+#                 window.location.href = window.location.pathname;
+#             }
+
+#             function exportToCSV() {
+#                 const headers = ['Unique ID', 'Name', 'Email', 'Purpose', 'Status', 'Visit Date', 'Visits', 'Blacklisted', 'Blacklist Reason', 'Registered At'];
+#                 const rows = {{ visitors | tojson }};
+                
+#                 let csvContent = headers.join(',') + '\\n';
+                
+#                 rows.forEach(visitor => {
+#                     const row = [
+#                         visitor.unique_id,
+#                         `"${visitor.name}"`,
+#                         `"${visitor.contact}"`,
+#                         `"${visitor.purpose}"`,
+#                         visitor.status,
+#                         visitor.visit_date,
+#                         visitor.num_visits,
+#                         visitor.blacklisted ? 'Yes' : 'No',
+#                         `"${visitor.blacklist_reason}"`,
+#                         visitor.registered_at
+#                     ];
+#                     csvContent += row.join(',') + '\\n';
+#                 });
+                
+#                 const blob = new Blob([csvContent], { type: 'text/csv' });
+#                 const url = window.URL.createObjectURL(blob);
+#                 const a = document.createElement('a');
+#                 a.setAttribute('hidden', '');
+#                 a.setAttribute('href', url);
+#                 a.setAttribute('download', `visitors_report_${new Date().toISOString().split('T')[0]}.csv`);
+#                 document.body.appendChild(a);
+#                 a.click();
+#                 document.body.removeChild(a);
+#             }
+
+#             // Action Functions
+#             function viewVisitorDetails(visitorId) {
+#                 window.open(`/visitor/${visitorId}`, '_blank');
+#             }
+
+#             function editVisitor(visitorId) {
+#                 window.open(`/visitor/edit/${visitorId}`, '_blank');
+#             }
+
+#             function approveVisitor(visitorId) {
+#                 if (confirm('Are you sure you want to approve this visitor?')) {
+#                     fetch(`/visitor/${visitorId}/approve`, {
+#                         method: 'POST',
+#                         headers: {'Content-Type': 'application/json'}
+#                     }).then(response => {
+#                         if (response.ok) location.reload();
+#                         else alert('Error approving visitor');
+#                     });
+#                 }
+#             }
+
+#             function rejectVisitor(visitorId) {
+#                 const reason = prompt('Enter reason for rejection:');
+#                 if (reason) {
+#                     fetch(`/visitor/${visitorId}/reject`, {
+#                         method: 'POST',
+#                         headers: {'Content-Type': 'application/json'},
+#                         body: JSON.stringify({reason: reason})
+#                     }).then(response => {
+#                         if (response.ok) location.reload();
+#                         else alert('Error rejecting visitor');
+#                     });
+#                 }
+#             }
+
+#             function checkinVisitor(visitorId) {
+#                 fetch(`/visitor/${visitorId}/checkin`, {
+#                     method: 'POST',
+#                     headers: {'Content-Type': 'application/json'}
+#                 }).then(response => {
+#                     if (response.ok) location.reload();
+#                     else alert('Error checking in visitor');
+#                 });
+#             }
+
+#             function checkoutVisitor(visitorId) {
+#                 fetch(`/visitor/${visitorId}/checkout`, {
+#                     method: 'POST',
+#                     headers: {'Content-Type': 'application/json'}
+#                 }).then(response => {
+#                     if (response.ok) location.reload();
+#                     else alert('Error checking out visitor');
+#                 });
+#             }
+
+#             function notifyVisitor(visitorId) {
+#                 const message = prompt('Enter notification message:');
+#                 if (message) {
+#                     fetch(`/visitor/${visitorId}/notify`, {
+#                         method: 'POST',
+#                         headers: {'Content-Type': 'application/json'},
+#                         body: JSON.stringify({message: message})
+#                     }).then(response => {
+#                         if (response.ok) alert('Notification sent successfully!');
+#                         else alert('Error sending notification');
+#                     });
+#                 }
+#             }
+
+#             // Initialize charts when page loads
+#             document.addEventListener('DOMContentLoaded', function() {
+#                 // Status Distribution Chart
+#                 const statusCtx = document.getElementById('statusChart');
+#                 if (statusCtx) {
+#                     // Ensure we have valid data for the chart
+#                     const registered = {{ registered_count }} || 0;
+#                     const approved = {{ approved_count }} || 0;
+#                     const checkedIn = {{ checked_in_count }} || 0;
+#                     const checkedOut = {{ checked_out_count }} || 0;
+#                     const rescheduled = {{ rescheduled_count }} || 0;
+#                     const rejected = {{ rejected_count }} || 0;
+
+#                     // Only create chart if we have data
+#                     if (registered + approved + checkedIn + checkedOut + rescheduled + rejected > 0) {
+#                         new Chart(statusCtx, {
+#                             type: 'doughnut',
+#                             data: {
+#                                 labels: ['Registered', 'Approved', 'Checked In', 'Checked Out', 'Rescheduled', 'Rejected'],
+#                                 datasets: [{
+#                                     data: [registered, approved, checkedIn, checkedOut, rescheduled, rejected],
+#                                     backgroundColor: [
+#                                         '#6B7280', '#F59E0B', '#10B981', '#8B5CF6', '#3B82F6', '#EF4444'
+#                                     ],
+#                                     borderWidth: 2,
+#                                     borderColor: '#fff'
+#                                 }]
+#                             },
+#                             options: {
+#                                 responsive: true,
+#                                 maintainAspectRatio: false,
+#                                 plugins: {
+#                                     legend: {
+#                                         position: 'bottom',
+#                                         labels: {
+#                                             padding: 20,
+#                                             usePointStyle: true,
+#                                             font: {
+#                                                 size: 11
+#                                             }
+#                                         }
+#                                     },
+#                                     tooltip: {
+#                                         callbacks: {
+#                                             label: function(context) {
+#                                                 const label = context.label || '';
+#                                                 const value = context.raw || 0;
+#                                                 const total = context.dataset.data.reduce((a, b) => a + b, 0);
+#                                                 const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+#                                                 return `${label}: ${value} (${percentage}%)`;
+#                                             }
+#                                         }
+#                                     }
+#                                 },
+#                                 cutout: '65%'
+#                             }
+#                         });
+#                     } else {
+#                         statusCtx.parentElement.innerHTML = `
+#                             <div class="flex flex-col items-center justify-center h-64 text-gray-500">
+#                                 <i class="fas fa-chart-pie text-4xl mb-2"></i>
+#                                 <p>No data available for chart</p>
+#                             </div>
+#                         `;
+#                     }
+#                 }
+#             });
+#         </script>
+#     </head>
+#     <body class="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-4">
+#         <div class="max-w-10xl mx-auto space-y-6">
+#             <!-- Header -->
+#             <div class="flex justify-between items-center">
+#                 <div>
+#                     <h1 class="text-3xl font-bold text-gray-900">Visitor Analytics</h1>
+#                     <p class="text-gray-600">Comprehensive visitor management dashboard</p>
+#                 </div>
+#                 <div class="flex space-x-3">
+#                     <button onclick="exportToCSV()" 
+#                             class="bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 shadow-sm transition flex items-center">
+#                         <i class="fas fa-file-export mr-2"></i>Export
+#                     </button>
+#                 </div>
+#             </div>
+
+#             <!-- Main Analytics Grid -->
+#             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+#                 <!-- Left Column - Metrics -->
+#                 <div class="lg:col-span-2 space-y-6">
+#                     <!-- Key Metrics -->
+#                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+#                         <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-blue-500">
+#                             <div class="flex items-center justify-between">
+#                                 <div>
+#                                     <p class="text-sm font-medium text-gray-600">Total Visitors</p>
+#                                     <p class="text-2xl font-bold text-gray-900">{{ total_visitors }}</p>
+#                                 </div>
+#                                 <div class="p-3 bg-blue-100 rounded-lg">
+#                                     <i class="fas fa-users text-blue-600 text-xl"></i>
+#                                 </div>
+#                             </div>
+#                             <div class="mt-2 text-xs text-gray-500">All time registered visitors</div>
+#                         </div>
+
+#                         <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-green-500">
+#                             <div class="flex items-center justify-between">
+#                                 <div>
+#                                     <p class="text-sm font-medium text-gray-600">Active Now</p>
+#                                     <p class="text-2xl font-bold text-gray-900">{{ checked_in_count }}</p>
+#                                 </div>
+#                                 <div class="p-3 bg-green-100 rounded-lg">
+#                                     <i class="fas fa-user-check text-green-600 text-xl"></i>
+#                                 </div>
+#                             </div>
+#                             <div class="mt-2 text-xs text-gray-500">Currently in facility</div>
+#                         </div>
+
+#                         <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-purple-500">
+#                             <div class="flex items-center justify-between">
+#                                 <div>
+#                                     <p class="text-sm font-medium text-gray-600">Pending</p>
+#                                     <p class="text-2xl font-bold text-gray-900">{{ registered_count + approved_count }}</p>
+#                                 </div>
+#                                 <div class="p-3 bg-purple-100 rounded-lg">
+#                                     <i class="fas fa-clock text-purple-600 text-xl"></i>
+#                                 </div>
+#                             </div>
+#                             <div class="mt-2 text-xs text-gray-500">Awaiting action</div>
+#                         </div>
+
+#                         <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-red-500">
+#                             <div class="flex items-center justify-between">
+#                                 <div>
+#                                     <p class="text-sm font-medium text-gray-600">Blacklisted</p>
+#                                     <p class="text-2xl font-bold text-gray-900">{{ blacklisted_count }}</p>
+#                                 </div>
+#                                 <div class="p-3 bg-red-100 rounded-lg">
+#                                     <i class="fas fa-ban text-red-600 text-xl"></i>
+#                                 </div>
+#                             </div>
+#                             <div class="mt-2 text-xs text-gray-500">Restricted access</div>
+#                         </div>
+#                     </div>
+
+#                     <!-- Status Distribution -->
+#                     <div class="bg-white rounded-xl p-6 shadow-sm">
+#                         <div class="flex justify-between items-center mb-6">
+#                             <h3 class="text-lg font-semibold text-gray-900">Status Distribution</h3>
+#                             <span class="text-sm text-gray-500">Real-time overview</span>
+#                         </div>
+#                         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-gray-700 font-bold">{{ registered_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Registered</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-gray-500" style="width: {{ status_distribution.registered }}%"></div>
+#                                 </div>
+#                             </div>
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-yellow-700 font-bold">{{ approved_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Approved</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-yellow-500" style="width: {{ status_distribution.approved }}%"></div>
+#                                 </div>
+#                             </div>
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-green-700 font-bold">{{ checked_in_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Checked In</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-green-500" style="width: {{ status_distribution.checked_in }}%"></div>
+#                                 </div>
+#                             </div>
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-purple-700 font-bold">{{ checked_out_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Checked Out</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-purple-500" style="width: {{ status_distribution.checked_out }}%"></div>
+#                                 </div>
+#                             </div>
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-blue-700 font-bold">{{ rescheduled_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Rescheduled</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-blue-500" style="width: {{ status_distribution.rescheduled }}%"></div>
+#                                 </div>
+#                             </div>
+#                             <div class="text-center">
+#                                 <div class="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-2">
+#                                     <span class="text-red-700 font-bold">{{ rejected_count }}</span>
+#                                 </div>
+#                                 <p class="text-xs font-medium text-gray-600">Rejected</p>
+#                                 <div class="progress-bar mt-1">
+#                                     <div class="progress-fill bg-red-500" style="width: {{ status_distribution.rejected }}%"></div>
+#                                 </div>
+#                             </div>
+#                         </div>
+#                     </div>
+
+#                     <!-- Visitors Table -->
+#                     <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+#                         <div class="px-6 py-4 border-b border-gray-200">
+#                             <div class="flex justify-between items-center">
+#                                 <h3 class="text-lg font-semibold text-gray-900">Visitor Records</h3>
+#                                 <div class="flex space-x-3">
+#                                     <input type="text" id="searchInput"
+#                                            placeholder="Search visitors..." 
+#                                            value="{{ request.args.get('search_name', '') }}"
+#                                            onkeyup="if(event.key==='Enter') applyFilters()"
+#                                            class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+#                                     <select id="statusFilter" onchange="applyFilters()" 
+#                                             class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+#                                         <option value="all" {{ 'selected' if request.args.get('search_status') == 'all' else '' }}>All Status</option>
+#                                         <option value="registered" {{ 'selected' if request.args.get('search_status') == 'registered' else '' }}>Registered</option>
+#                                         <option value="approved" {{ 'selected' if request.args.get('search_status') == 'approved' else '' }}>Approved</option>
+#                                         <option value="checked_in" {{ 'selected' if request.args.get('search_status') == 'checked_in' else '' }}>Checked In</option>
+#                                         <option value="checked_out" {{ 'selected' if request.args.get('search_status') == 'checked_out' else '' }}>Checked Out</option>
+#                                         <option value="rescheduled" {{ 'selected' if request.args.get('search_status') == 'rescheduled' else '' }}>Rescheduled</option>
+#                                         <option value="rejected" {{ 'selected' if request.args.get('search_status') == 'rejected' else '' }}>Rejected</option>
+#                                     </select>
+#                                 </div>
+#                             </div>
+#                         </div>
+#                         <div class="overflow-x-auto">
+#                             <table class="w-full">
+#                                 <thead class="bg-gray-50">
+#                                     <tr>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor ID</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor Details</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purpose</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visits</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Blacklist</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Blacklist Reason</th>
+#                                         <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+#                                     </tr>
+#                                 </thead>
+#                                 <tbody class="bg-white divide-y divide-gray-200">
+#                                     {% for visitor in visitors %}
+#                                     <tr class="hover:bg-gray-50 transition-colors fade-in">
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <a href="/visitor/{{ visitor.id }}" 
+#                                                class="text-blue-600 hover:text-blue-900 font-medium cursor-pointer"
+#                                                title="Click to view full details">
+#                                                 {{ visitor.unique_id }}
+#                                             </a>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <div class="flex items-center">
+#                                                 <div class="flex-shrink-0 h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+#                                                     {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+#                                                 </div>
+#                                                 <div class="ml-4">
+#                                                     <div class="text-sm font-medium text-gray-900">{{ visitor.name }}</div>
+#                                                     <div class="text-sm text-gray-500">{{ visitor.contact }}</div>
+#                                                     <div class="text-xs text-gray-400">{{ visitor.employee_name if visitor.employee_name != 'N/A' else 'No employee' }}</div>
+#                                                 </div>
+#                                             </div>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <div class="text-sm text-gray-900">{{ visitor.purpose }}</div>
+#                                             <div class="text-sm text-gray-500">{{ visitor.visit_date if visitor.visit_date != 'N/A' else 'No date' }}</div>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             {% set status_config = {
+#                                                 'Registered': {'color': 'gray', 'icon': 'user-plus'},
+#                                                 'Approved': {'color': 'yellow', 'icon': 'check-circle'},
+#                                                 'Checked-In': {'color': 'green', 'icon': 'user-check'},
+#                                                 'Checked-Out': {'color': 'purple', 'icon': 'user-times'},
+#                                                 'Rescheduled': {'color': 'blue', 'icon': 'calendar-alt'},
+#                                                 'Rejected': {'color': 'red', 'icon': 'times-circle'}
+#                                             } %}
+#                                             {% set config = status_config.get(visitor.status, {'color': 'gray', 'icon': 'question'}) %}
+#                                             <span class="status-badge bg-{{ config.color }}-100 text-{{ config.color }}-800 inline-flex items-center">
+#                                                 <i class="fas fa-{{ config.icon }} mr-1 text-xs"></i>
+#                                                 {{ visitor.status }}
+#                                                 {% if visitor.exceeded %}
+#                                                 <i class="fas fa-clock ml-1 text-xs" title="Time Exceeded"></i>
+#                                                 {% endif %}
+#                                             </span>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <div class="text-sm font-medium text-gray-900 text-center">
+#                                                 <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800">
+#                                                     {{ visitor.num_visits }}
+#                                                 </span>
+#                                             </div>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <label class="relative inline-flex items-center cursor-pointer">
+#                                                 <input type="checkbox" {{ 'checked' if visitor.blacklisted else '' }} 
+#                                                        class="sr-only peer"
+#                                                        onchange="toggleBlacklist('{{ visitor.id }}', {{ 'true' if visitor.blacklisted else 'false' }})">
+#                                                 <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+#                                             </label>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap">
+#                                             <div class="text-sm text-gray-600 max-w-xs truncate" title="{{ visitor.blacklist_reason }}">
+#                                                 {{ visitor.blacklist_reason if visitor.blacklisted else '-' }}
+#                                             </div>
+#                                         </td>
+#                                         <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+#                                             <div class="flex items-center space-x-2">
+#                                                 <!-- View Details -->
+#                                                 <button onclick="viewVisitorDetails('{{ visitor.id }}')" 
+#                                                         class="text-blue-600 hover:text-blue-900 transition-colors" 
+#                                                         title="View Details">
+#                                                     <i class="fas fa-eye"></i>
+#                                                 </button>
+                                                
+#                                                 <!-- Edit Visitor -->
+#                                                 <button onclick="editVisitor('{{ visitor.id }}')" 
+#                                                         class="text-green-600 hover:text-green-900 transition-colors" 
+#                                                         title="Edit Visitor">
+#                                                     <i class="fas fa-edit"></i>
+#                                                 </button>
+                                                
+#                                                 <!-- Quick Status Actions -->
+#                                                 {% if visitor.status == 'Registered' %}
+#                                                 <button onclick="approveVisitor('{{ visitor.id }}')" 
+#                                                         class="text-emerald-600 hover:text-emerald-900 transition-colors" 
+#                                                         title="Approve Visit">
+#                                                     <i class="fas fa-check"></i>
+#                                                 </button>
+#                                                 <button onclick="rejectVisitor('{{ visitor.id }}')" 
+#                                                         class="text-red-600 hover:text-red-900 transition-colors" 
+#                                                         title="Reject Visit">
+#                                                     <i class="fas fa-times"></i>
+#                                                 </button>
+#                                                 {% endif %}
+                                                
+#                                                 {% if visitor.status == 'Approved' %}
+#                                                 <button onclick="checkinVisitor('{{ visitor.id }}')" 
+#                                                         class="text-blue-600 hover:text-blue-900 transition-colors" 
+#                                                         title="Check In">
+#                                                     <i class="fas fa-sign-in-alt"></i>
+#                                                 </button>
+#                                                 {% endif %}
+                                                
+#                                                 {% if visitor.status == 'Checked-In' %}
+#                                                 <button onclick="checkoutVisitor('{{ visitor.id }}')" 
+#                                                         class="text-purple-600 hover:text-purple-900 transition-colors" 
+#                                                         title="Check Out">
+#                                                     <i class="fas fa-sign-out-alt"></i>
+#                                                 </button>
+#                                                 {% endif %}
+                                                
+#                                                 <!-- Notify Visitor -->
+#                                                 <button onclick="notifyVisitor('{{ visitor.id }}')" 
+#                                                         class="text-orange-600 hover:text-orange-900 transition-colors" 
+#                                                         title="Send Notification">
+#                                                     <i class="fas fa-bell"></i>
+#                                                 </button>
+#                                             </div>
+#                                         </td>
+#                                     </tr>
+#                                     {% endfor %}
+#                                 </tbody>
+#                             </table>
+#                         </div>
+#                     </div>
+#                 </div>
+
+#                 <!-- Right Column - Charts & Filters -->
+#                 <div class="space-y-6">
+#                     <!-- Status Chart -->
+#                     <div class="bg-white rounded-xl p-6 shadow-sm">
+#                         <h3 class="text-lg font-semibold text-gray-900 mb-4">Status Overview</h3>
+#                         <div class="h-64">
+#                             <canvas id="statusChart"></canvas>
+#                         </div>
+#                     </div>
+
+#                     <!-- Quick Filters -->
+#                     <div class="bg-white rounded-xl p-6 shadow-sm">
+#                         <h3 class="text-lg font-semibold text-gray-900 mb-4">Quick Filters</h3>
+#                         <div class="space-y-4">
+#                             <div>
+#                                 <label class="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+#                                 <div class="space-y-2">
+#                                     <input type="date" id="startDate"
+#                                            value="{{ request.args.get('start_date', '') }}"
+#                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+#                                            placeholder="Start date">
+#                                     <input type="date" id="endDate"
+#                                            value="{{ request.args.get('end_date', '') }}"
+#                                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+#                                            placeholder="End date">
+#                                 </div>
+#                             </div>
+#                             <button onclick="applyFilters()" 
+#                                     class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition">
+#                                 Apply Filters
+#                             </button>
+#                             <button onclick="clearFilters()" 
+#                                     class="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
+#                                 Clear All
+#                             </button>
+#                         </div>
+#                     </div>
+
+#                     <!-- Recent Activity -->
+#                     <div class="bg-white rounded-xl p-6 shadow-sm">
+#                         <h3 class="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h3>
+#                         <div class="space-y-3">
+#                             {% for visitor in visitors[:3] %}
+#                             <div class="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+#                                 <div class="flex-shrink-0">
+#                                     <div class="h-8 w-8 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white text-xs font-bold">
+#                                         {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+#                                     </div>
+#                                 </div>
+#                                 <div class="flex-1 min-w-0">
+#                                     <p class="text-sm font-medium text-gray-900 truncate">{{ visitor.name }}</p>
+#                                     <p class="text-sm text-gray-500 truncate">{{ visitor.status }}</p>
+#                                 </div>
+#                                 <div class="text-xs text-gray-400">
+#                                     {{ visitor.registered_at if visitor.registered_at != 'N/A' else 'Recently' }}
+#                                 </div>
+#                             </div>
+#                             {% endfor %}
+#                         </div>
+#                     </div>
+#                 </div>
+#             </div>
+#         </div>
+#     </body>
+#     </html>
+#     """
+#     return render_template_string(VISITORS_HTML, 
+#                             visitors=filtered_visitors, 
+#                             total_visitors=total_visitors, 
+#                             registered_count=registered_count, 
+#                             approved_count=approved_count,
+#                             checked_in_count=checked_in_count, 
+#                             checked_out_count=checked_out_count,
+#                             rescheduled_count=rescheduled_count, 
+#                             rejected_count=rejected_count,
+#                             exceeded_count=exceeded_count, 
+#                             blacklisted_count=blacklisted_count,
+#                             status_distribution=status_distribution, 
+#                             request=request)
+
+@app.route('/visitors')
+def visitors_list():
+    visitors_ref = db.reference('visitors')
+    all_visitors = visitors_ref.get()
+    visitors_data = []
+
+    now = datetime.now()
+    
+    # Get filter parameters from request
+    search_name = request.args.get('search_name', '').lower()
+    search_status = request.args.get('search_status', 'all')
+    start_date = request.args.get('start_date', '')
+    end_date = request.args.get('end_date', '')
+    time_range = request.args.get('time_range', 'all')  # all, today, week, month, <1hr, <3hr, <6hr
+    
+    # Pagination parameters
+    page = int(request.args.get('page', 1))
+    per_page = 10
+
+    if all_visitors:
+        for vid, data in all_visitors.items():
+            # Extract basic_info
+            basic_info = data.get('basic_info', {})
+            
+            # Get visitor details from basic_info
+            visitor_name = basic_info.get('name', 'N/A')
+            visitor_contact = basic_info.get('contact', 'N/A')
+            blacklisted = str(basic_info.get('blacklisted', 'no')).lower() in ['yes', 'true', '1']
+            blacklist_reason = basic_info.get('blacklist_reason', 'No reason provided')
+            
+            # Get visits and find the most recent one for status
+            visits = data.get('visits', {})
+            recent_visit = None
+            current_status = 'Registered'  # Default status
+            check_in_time = None
+            check_out_time = None
+            expected_checkout_time = None
+            purpose = 'N/A'
+            employee_name = 'N/A'
+            visit_date = 'N/A'
+            duration = 'N/A'
+            last_visit_time = None
+            exceeded = False
+
+            if visits:
+                # Find the most recent visit by timestamp
+                sorted_visits = []
+                for visit_id, visit_data in visits.items():
+                    visit_timestamp = visit_data.get('created_at') or visit_data.get('check_in_time')
+                    if visit_timestamp:
+                        try:
+                            visit_dt = datetime.strptime(visit_timestamp, "%Y-%m-%d %H:%M:%S")
+                            sorted_visits.append((visit_dt, visit_id, visit_data))
+                        except ValueError:
+                            continue
+                
+                if sorted_visits:
+                    # Sort by timestamp (most recent first)
+                    sorted_visits.sort(key=lambda x: x[0], reverse=True)
+                    last_visit_time, recent_visit_id, recent_visit_data = sorted_visits[0]
+                    
+                    # Get status from the most recent visit - handle different status formats
+                    status_from_visit = recent_visit_data.get('status', 'Registered')
+                    # Normalize status values
+                    if status_from_visit.lower() in ['checked_out', 'checked-out', 'checked out']:
+                        current_status = 'Checked Out'
+                    elif status_from_visit.lower() in ['checked_in', 'checked-in', 'checked in']:
+                        current_status = 'Checked In'
+                        # Check if time exceeded for checked-in visitors
+                        check_in_time = recent_visit_data.get('check_in_time')
+                        expected_checkout_time = recent_visit_data.get('expected_checkout_time')
+                        if check_in_time and expected_checkout_time:
+                            try:
+                                checkin_dt = datetime.strptime(check_in_time, "%Y-%m-%d %H:%M:%S")
+                                checkout_dt = datetime.strptime(expected_checkout_time, "%Y-%m-%d %H:%M:%S")
+                                if now > checkout_dt:
+                                    exceeded = True
+                                    current_status = 'Exceeded'
+                            except ValueError:
+                                pass
+                    elif status_from_visit.lower() in ['approved', 'approve']:
+                        current_status = 'Approved'
+                    elif status_from_visit.lower() in ['registered', 'register']:
+                        current_status = 'Registered'
+                    elif status_from_visit.lower() in ['rejected', 'reject']:
+                        current_status = 'Rejected'
+                    elif status_from_visit.lower() in ['rescheduled', 'reschedule']:
+                        current_status = 'Rescheduled'
+                    elif status_from_visit.lower() in ['exceeded', 'time_exceeded']:
+                        current_status = 'Exceeded'
+                        exceeded = True
+                    else:
+                        current_status = status_from_visit  # Use as-is if not recognized
+                    
+                    purpose = recent_visit_data.get('purpose', 'N/A')
+                    employee_name = recent_visit_data.get('employee_name', 'N/A')
+                    visit_date = recent_visit_data.get('visit_date', 'N/A')
+                    duration = recent_visit_data.get('duration', 'N/A')
+
+            # Calculate number of visits from transactions or visits
+            transactions = data.get('transactions', {})
+            num_visits = len(visits) if visits else len(transactions) if isinstance(transactions, dict) else 0
+            
+            # Get registered_at from the earliest transaction or use current time
+            registered_at = 'N/A'
+            if transactions:
+                earliest_transaction = min(transactions.keys())
+                registered_at = transactions[earliest_transaction].get('timestamp', 'N/A')
+
+            # Use visitor ID as unique_id
+            unique_id = vid
+
+            visitors_data.append({
+                'id': vid,
+                'unique_id': unique_id,
+                'name': visitor_name,
+                'contact': visitor_contact,
+                'purpose': purpose,
+                'status': current_status,
+                'exceeded': exceeded,
+                'blacklisted': blacklisted,
+                'blacklist_reason': blacklist_reason,
+                'transactions': transactions,
+                'visits': visits,
+                'visit_date': visit_date,
+                'last_visit_time': last_visit_time,
+                'check_in_time': check_in_time,
+                'num_visits': num_visits,
+                'check_out_time': check_out_time,
+                'expected_checkout_time': expected_checkout_time,
+                'registered_at': registered_at,
+                'employee_name': employee_name,
+                'duration': duration,
+                'photo_path': basic_info.get('photo_path', 'N/A'),
+                'profile_link': basic_info.get('profile_link', 'N/A')
+            })
+
+    # Apply filters
+    filtered_visitors = []
+    for visitor in visitors_data:
+        include_visitor = True
+        
+        # Filter by name search
+        if search_name and search_name not in visitor['name'].lower():
+            include_visitor = False
+        
+        # Filter by status
+        if search_status != 'all':
+            # Normalize both statuses for comparison
+            visitor_status_normalized = visitor['status'].lower().replace(' ', '_').replace('-', '_')
+            if search_status != visitor_status_normalized:
+                include_visitor = False
+        
+        # Filter by date range
+        if start_date and end_date and visitor['visit_date'] != 'N/A':
+            try:
+                visit_dt = datetime.strptime(visitor['visit_date'], "%Y-%m-%d")
+                start_dt = datetime.strptime(start_date, "%Y-%m-%d")
+                end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+                if not (start_dt <= visit_dt <= end_dt):
+                    include_visitor = False
+            except ValueError:
+                pass
+        
+        # Filter by time range
+        if time_range != 'all' and visitor['last_visit_time']:
+            try:
+                if time_range == 'today':
+                    if visitor['last_visit_time'].date() != now.date():
+                        include_visitor = False
+                elif time_range == 'week':
+                    week_ago = now - timedelta(days=7)
+                    if visitor['last_visit_time'] < week_ago:
+                        include_visitor = False
+                elif time_range == 'month':
+                    month_ago = now - timedelta(days=30)
+                    if visitor['last_visit_time'] < month_ago:
+                        include_visitor = False
+                elif time_range == '<1hr':
+                    one_hour_ago = now - timedelta(hours=1)
+                    if visitor['last_visit_time'] < one_hour_ago:
+                        include_visitor = False
+                elif time_range == '<3hr':
+                    three_hours_ago = now - timedelta(hours=3)
+                    if visitor['last_visit_time'] < three_hours_ago:
+                        include_visitor = False
+                elif time_range == '<6hr':
+                    six_hours_ago = now - timedelta(hours=6)
+                    if visitor['last_visit_time'] < six_hours_ago:
+                        include_visitor = False
+            except (ValueError, TypeError):
+                pass
+        
+        if include_visitor:
+            filtered_visitors.append(visitor)
+
+    # Sort by last visit time (most recent first)
+    filtered_visitors.sort(key=lambda x: x['last_visit_time'] or datetime.min, reverse=True)
+
+    # Calculate comprehensive statistics - now including Exceeded status
+    total_visitors = len(filtered_visitors)
+    registered_count = sum(1 for v in filtered_visitors if v['status'] == 'Registered')
+    approved_count = sum(1 for v in filtered_visitors if v['status'] == 'Approved')
+    checked_in_count = sum(1 for v in filtered_visitors if v['status'] == 'Checked In')
+    checked_out_count = sum(1 for v in filtered_visitors if v['status'] == 'Checked Out')
+    rescheduled_count = sum(1 for v in filtered_visitors if v['status'] == 'Rescheduled')
+    rejected_count = sum(1 for v in filtered_visitors if v['status'] == 'Rejected')
+    exceeded_count = sum(1 for v in filtered_visitors if v['status'] == 'Exceeded')
+    blacklisted_count = sum(1 for v in filtered_visitors if v['blacklisted'])
+    
+    # Calculate percentages
+    status_distribution = {
+        'registered': (registered_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'approved': (approved_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'checked_in': (checked_in_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'checked_out': (checked_out_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'rescheduled': (rescheduled_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'rejected': (rejected_count / total_visitors * 100) if total_visitors > 0 else 0,
+        'exceeded': (exceeded_count / total_visitors * 100) if total_visitors > 0 else 0,
+    }
+
+    # Pagination
+    total_pages = (total_visitors + per_page - 1) // per_page
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated_visitors = filtered_visitors[start_idx:end_idx]
+
+    # Calculate display range for template
+    showing_start = start_idx + 1
+    showing_end = min(end_idx, total_visitors)
+
+    VISITORS_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Visitor Management | Admin Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+            .status-badge {
+                @apply px-3 py-1 rounded-full text-xs font-semibold capitalize;
+            }
+            .metric-card {
+                transition: all 0.3s ease;
+                border-left: 4px solid;
+            }
+            .metric-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            }
+            .progress-bar {
+                height: 6px;
+                border-radius: 3px;
+                overflow: hidden;
+                background: #e5e7eb;
+            }
+            .progress-fill {
+                height: 100%;
+                transition: width 0.5s ease-in-out;
+            }
+            .fade-in {
+                animation: fadeIn 0.5s ease-in;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateY(10px); }
+                to { opacity: 1; transform: translateY(0); }
+            }
+        </style>
+        <script>
+            async function toggleBlacklist(visitorId, currentState) {
+                let reason = '';
+                const newState = !currentState;
+                
+                if (newState) {
+                    reason = prompt("Enter reason for blacklisting this visitor:");
+                    if (!reason) { 
+                        return; 
+                    }
+                }
+                
+                try {
+                    const response = await fetch(`/blacklist/${visitorId}`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ 
+                            blacklisted: newState, 
+                            reason: reason 
+                        })
+                    });
+                    
+                    if (response.ok) { 
+                        location.reload(); 
+                    } else { 
+                        throw new Error('Update failed');
+                    }
+                } catch (error) {
+                    alert("Error updating blacklist status.");
+                }
+            }
+
+            function applyFilters() {
+                const searchName = document.getElementById('searchInput').value;
+                const searchStatus = document.getElementById('statusFilter').value;
+                const startDate = document.getElementById('startDate').value;
+                const endDate = document.getElementById('endDate').value;
+                const timeRange = document.getElementById('timeRange').value;
+                
+                const params = new URLSearchParams();
+                if (searchName) params.append('search_name', searchName);
+                if (searchStatus !== 'all') params.append('search_status', searchStatus);
+                if (startDate) params.append('start_date', startDate);
+                if (endDate) params.append('end_date', endDate);
+                if (timeRange !== 'all') params.append('time_range', timeRange);
+                
+                window.location.href = `${window.location.pathname}?${params.toString()}`;
+            }
+
+            function clearFilters() {
+                window.location.href = window.location.pathname;
+            }
+
+            function exportToCSV() {
+                const headers = ['Unique ID', 'Name', 'Email', 'Purpose', 'Status', 'Visit Date', 'Visits', 'Blacklisted', 'Blacklist Reason', 'Registered At'];
+                const rows = {{ paginated_visitors | tojson }};
+                
+                let csvContent = headers.join(',') + '\\n';
+                
+                rows.forEach(visitor => {
+                    const row = [
+                        visitor.unique_id,
+                        `"${visitor.name}"`,
+                        `"${visitor.contact}"`,
+                        `"${visitor.purpose}"`,
+                        visitor.status,
+                        visitor.visit_date,
+                        visitor.num_visits,
+                        visitor.blacklisted ? 'Yes' : 'No',
+                        `"${visitor.blacklist_reason}"`,
+                        visitor.registered_at
+                    ];
+                    csvContent += row.join(',') + '\\n';
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.setAttribute('hidden', '');
+                a.setAttribute('href', url);
+                a.setAttribute('download', `visitors_report_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+
+            function changePage(page) {
+                const params = new URLSearchParams(window.location.search);
+                params.set('page', page);
+                window.location.href = `${window.location.pathname}?${params.toString()}`;
+            }
+
+            // Action Functions
+            function viewVisitorDetails(visitorId) {
+                window.open(`/visitor/${visitorId}`, '_blank');
+            }
+
+            function editVisitor(visitorId) {
+                window.open(`/visitor/edit/${visitorId}`, '_blank');
+            }
+
+            function approveVisitor(visitorId) {
+                if (confirm('Are you sure you want to approve this visitor?')) {
+                    fetch(`/visitor/${visitorId}/approve`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'}
+                    }).then(response => {
+                        if (response.ok) location.reload();
+                        else alert('Error approving visitor');
+                    });
+                }
+            }
+
+            function rejectVisitor(visitorId) {
+                const reason = prompt('Enter reason for rejection:');
+                if (reason) {
+                    fetch(`/visitor/${visitorId}/reject`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({reason: reason})
+                    }).then(response => {
+                        if (response.ok) location.reload();
+                        else alert('Error rejecting visitor');
+                    });
+                }
+            }
+
+            function checkinVisitor(visitorId) {
+                fetch(`/visitor/${visitorId}/checkin`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                }).then(response => {
+                    if (response.ok) location.reload();
+                    else alert('Error checking in visitor');
+                });
+            }
+
+            function checkoutVisitor(visitorId) {
+                fetch(`/visitor/${visitorId}/checkout`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'}
+                }).then(response => {
+                    if (response.ok) location.reload();
+                    else alert('Error checking out visitor');
+                });
+            }
+
+            
+        </script>
+    </head>
+    <body class="min-h-screen bg-gray-50 p-6">
+        <div class="max-w-10xl mx-auto space-y-6">
+            <!-- Header -->
+            <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                <div>
+                    <h1 class="text-3xl font-bold text-gray-900">Visitor Management</h1>
+                    <p class="text-gray-600">Manage and track all visitor activities</p>
+                </div>
+                <div class="flex flex-wrap gap-3">
+                    <button onclick="exportToCSV()" 
+                            class="bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 shadow-sm transition flex items-center">
+                        <i class="fas fa-file-export mr-2"></i>Export CSV
+                    </button>
+                </div>
+            </div>
+
+            <!-- Filters Section -->
+            <div class="bg-white rounded-xl p-6 shadow-sm">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Filters</h3>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Search by Name</label>
+                        <input type="text" id="searchInput"
+                               placeholder="Enter visitor name..." 
+                               value="{{ request.args.get('search_name', '') }}"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                        <select id="statusFilter" 
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="all" {{ 'selected' if request.args.get('search_status') == 'all' else '' }}>All Status</option>
+                            <option value="registered" {{ 'selected' if request.args.get('search_status') == 'registered' else '' }}>Registered</option>
+                            <option value="approved" {{ 'selected' if request.args.get('search_status') == 'approved' else '' }}>Approved</option>
+                            <option value="checked_in" {{ 'selected' if request.args.get('search_status') == 'checked_in' else '' }}>Checked In</option>
+                            <option value="checked_out" {{ 'selected' if request.args.get('search_status') == 'checked_out' else '' }}>Checked Out</option>
+                            <option value="rescheduled" {{ 'selected' if request.args.get('search_status') == 'rescheduled' else '' }}>Rescheduled</option>
+                            <option value="rejected" {{ 'selected' if request.args.get('search_status') == 'rejected' else '' }}>Rejected</option>
+                            <option value="exceeded" {{ 'selected' if request.args.get('search_status') == 'exceeded' else '' }}>Exceeded</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Date Range</label>
+                        <div class="space-y-2">
+                            <input type="date" id="startDate"
+                                   value="{{ request.args.get('start_date', '') }}"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="Start date">
+                            <input type="date" id="endDate"
+                                   value="{{ request.args.get('end_date', '') }}"
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   placeholder="End date">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
+                        <select id="timeRange" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="all" {{ 'selected' if request.args.get('time_range') == 'all' else '' }}>All Time</option>
+                            <option value="today" {{ 'selected' if request.args.get('time_range') == 'today' else '' }}>Today</option>
+                           
+                            <option value="<1hr" {{ 'selected' if request.args.get('time_range') == '<1hr' else '' }}>Last 1 Hour</option>
+                            <option value="<3hr" {{ 'selected' if request.args.get('time_range') == '<3hr' else '' }}>Last 3 Hours</option>
+                            <option value="<6hr" {{ 'selected' if request.args.get('time_range') == '<6hr' else '' }}>Last 6 Hours</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex gap-3 mt-4">
+                    <button onclick="applyFilters()" 
+                            class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded-lg transition">
+                        Apply Filters
+                    </button>
+                    <button onclick="clearFilters()" 
+                            class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium py-2 px-6 rounded-lg transition">
+                        Clear All
+                    </button>
+                </div>
+            </div>
+
+            <!-- Key Metrics -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-blue-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Total Visitors</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ total_visitors }}</p>
+                        </div>
+                        <div class="p-3 bg-blue-100 rounded-lg">
+                            <i class="fas fa-users text-blue-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-green-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Active Now</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ checked_in_count }}</p>
+                        </div>
+                        <div class="p-3 bg-green-100 rounded-lg">
+                            <i class="fas fa-user-check text-green-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-purple-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Pending</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ registered_count + approved_count }}</p>
+                        </div>
+                        <div class="p-3 bg-purple-100 rounded-lg">
+                            <i class="fas fa-clock text-purple-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-4 shadow-sm border-l-red-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Exceeded Time</p>
+                            <p class="text-2xl font-bold text-gray-900">{{ exceeded_count }}</p>
+                        </div>
+                        <div class="p-3 bg-red-100 rounded-lg">
+                            <i class="fas fa-exclamation-triangle text-red-600 text-xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Distribution -->
+            <div class="bg-white rounded-xl p-6 shadow-sm">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-semibold text-gray-900">Status Distribution</h3>
+                    <span class="text-sm text-gray-500">Real-time overview</span>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-4">
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-gray-700 font-bold">{{ registered_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Registered</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-gray-500" style="width: {{ status_distribution.registered }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-yellow-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-yellow-700 font-bold">{{ approved_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Approved</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-yellow-500" style="width: {{ status_distribution.approved }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-green-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-green-700 font-bold">{{ checked_in_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Checked In</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-green-500" style="width: {{ status_distribution.checked_in }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-purple-700 font-bold">{{ checked_out_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Checked Out</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-purple-500" style="width: {{ status_distribution.checked_out }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-blue-700 font-bold">{{ rescheduled_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Rescheduled</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-blue-500" style="width: {{ status_distribution.rescheduled }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-red-700 font-bold">{{ rejected_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Rejected</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-red-500" style="width: {{ status_distribution.rejected }}%"></div>
+                        </div>
+                    </div>
+                    <div class="text-center">
+                        <div class="mx-auto w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mb-2">
+                            <span class="text-orange-700 font-bold">{{ exceeded_count }}</span>
+                        </div>
+                        <p class="text-xs font-medium text-gray-600">Exceeded</p>
+                        <div class="progress-bar mt-1">
+                            <div class="progress-fill bg-orange-500" style="width: {{ status_distribution.exceeded }}%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visitors Table -->
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-lg font-semibold text-gray-900">Visitor Records</h3>
+                        <div class="text-sm text-gray-500">
+                            Showing {{ showing_start }} to {{ showing_end }} of {{ total_visitors }} visitors
+                        </div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor ID</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor Details</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Purpose</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visits</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Blacklist</th>
+                                
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for visitor in paginated_visitors %}
+                            <tr class="hover:bg-gray-50 transition-colors fade-in">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <a href="/visitor/{{ visitor.id }}" 
+                                       class="text-blue-600 hover:text-blue-900 font-medium cursor-pointer"
+                                       title="Click to view full details">
+                                        {{ visitor.unique_id }}
+                                    </a>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0 h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                                            {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+                                        </div>
+                                        <div class="ml-4">
+                                            <div class="text-sm font-medium text-gray-900">{{ visitor.name }}</div>
+                                            <div class="text-sm text-gray-500">{{ visitor.contact }}</div>
+                                            <div class="text-xs text-gray-400">{{ visitor.employee_name if visitor.employee_name != 'N/A' else 'No employee' }}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">{{ visitor.purpose }}</div>
+                                    <div class="text-sm text-gray-500">{{ visitor.visit_date if visitor.visit_date != 'N/A' else 'No date' }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    {% set status_config = {
+                                        'Registered': {'color': 'gray', 'icon': 'user-plus'},
+                                        'Approved': {'color': 'yellow', 'icon': 'check-circle'},
+                                        'Checked In': {'color': 'green', 'icon': 'user-check'},
+                                        'Checked Out': {'color': 'purple', 'icon': 'user-times'},
+                                        'Rescheduled': {'color': 'blue', 'icon': 'calendar-alt'},
+                                        'Rejected': {'color': 'red', 'icon': 'times-circle'},
+                                        'Exceeded': {'color': 'orange', 'icon': 'exclamation-triangle'}
+                                    } %}
+                                    {% set config = status_config.get(visitor.status, {'color': 'gray', 'icon': 'question'}) %}
+                                    <span class="status-badge bg-{{ config.color }}-100 text-{{ config.color }}-800 inline-flex items-center">
+                                        <i class="fas fa-{{ config.icon }} mr-1 text-xs"></i>
+                                        {{ visitor.status }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-medium text-gray-900 text-center">
+                                        <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-800">
+                                            {{ visitor.num_visits }}
+                                        </span>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" {{ 'checked' if visitor.blacklisted else '' }} 
+                                               class="sr-only peer"
+                                               onchange="toggleBlacklist('{{ visitor.id }}', {{ 'true' if visitor.blacklisted else 'false' }})">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                                    </label>
+                                    {% if visitor.blacklisted %}
+                                    <div class="text-xs text-gray-500 mt-1 max-w-xs truncate" title="{{ visitor.blacklist_reason }}">
+                                        {{ visitor.blacklist_reason }}
+                                    </div>
+                                    {% endif %}
+                                </td>
+
+                                        <!-- Quick Status Actions -->
+                                        {% if visitor.status == 'Registered' %}
+                                        <button onclick="approveVisitor('{{ visitor.id }}')" 
+                                                class="text-emerald-600 hover:text-emerald-900 transition-colors" 
+                                                title="Approve Visit">
+                                            <i class="fas fa-check"></i>
+                                        </button>
+                                        <button onclick="rejectVisitor('{{ visitor.id }}')" 
+                                                class="text-red-600 hover:text-red-900 transition-colors" 
+                                                title="Reject Visit">
+                                            <i class="fas fa-times"></i>
+                                        </button>
+                                        {% endif %}
+                                        
+                                        {% if visitor.status == 'Approved' %}
+                                        <button onclick="checkinVisitor('{{ visitor.id }}')" 
+                                                class="text-blue-600 hover:text-blue-900 transition-colors" 
+                                                title="Check In">
+                                            <i class="fas fa-sign-in-alt"></i>
+                                        </button>
+                                        {% endif %}
+                                        
+                                        {% if visitor.status == 'Checked In' %}
+                                        <button onclick="checkoutVisitor('{{ visitor.id }}')" 
+                                                class="text-purple-600 hover:text-purple-900 transition-colors" 
+                                                title="Check Out">
+                                            <i class="fas fa-sign-out-alt"></i>
+                                        </button>
+                                        {% endif %}
+                                        
+                                        
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Pagination -->
+                {% if total_pages > 1 %}
+                <div class="px-6 py-4 border-t border-gray-200 bg-gray-50">
+                    <div class="flex items-center justify-between">
+                        <div class="text-sm text-gray-700">
+                            Page {{ page }} of {{ total_pages }}
+                        </div>
+                        <div class="flex space-x-1">
+                            {% if page > 1 %}
+                            <button onclick="changePage({{ page - 1 }})" 
+                                    class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                Previous
+                            </button>
+                            {% endif %}
+                            
+                            {% for p in range(1, total_pages + 1) %}
+                                {% if p == page %}
+                                <span class="px-3 py-1 text-sm bg-blue-600 text-white border border-blue-600 rounded">
+                                    {{ p }}
+                                </span>
+                                {% else %}
+                                <button onclick="changePage({{ p }})" 
+                                        class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                    {{ p }}
+                                </button>
+                                {% endif %}
+                            {% endfor %}
+                            
+                            {% if page < total_pages %}
+                            <button onclick="changePage({{ page + 1 }})" 
+                                    class="px-3 py-1 text-sm bg-white border border-gray-300 rounded hover:bg-gray-50">
+                                Next
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(VISITORS_HTML, 
+                            paginated_visitors=paginated_visitors, 
+                            total_visitors=total_visitors, 
+                            registered_count=registered_count, 
+                            approved_count=approved_count,
+                            checked_in_count=checked_in_count, 
+                            checked_out_count=checked_out_count,
+                            rescheduled_count=rescheduled_count, 
+                            rejected_count=rejected_count,
+                            exceeded_count=exceeded_count, 
+                            blacklisted_count=blacklisted_count,
+                            status_distribution=status_distribution, 
+                            request=request,
+                            page=page,
+                            total_pages=total_pages,
+                            showing_start=showing_start,
+                            showing_end=showing_end)
+@app.route('/blacklist/<visitor_id>', methods=['POST'])
+def toggle_blacklist(visitor_id):
+    """Toggle blacklist status for a visitor"""
+    try:
+        data = request.get_json()
+        blacklisted = data.get('blacklisted', False)
+        reason = data.get('reason', 'No reason provided')
+        
+        visitors_ref = db.reference('visitors')
+        visitor_ref = visitors_ref.child(visitor_id)
+        
+        # Update blacklist status in basic_info
+        visitor_ref.child('basic_info').update({
+            'blacklisted': 'yes' if blacklisted else 'no',
+            'blacklist_reason': reason if blacklisted else 'No reason provided'
+        })
+        
+        return jsonify({
+            'success': True,
+            'message': f'Visitor {"blacklisted" if blacklisted else "unblacklisted"} successfully'
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error updating blacklist status: {str(e)}'
+        }), 500
+@app.route('/blacklist/<visitor_id>', methods=['POST'])
+def update_blacklist(visitor_id):
+    try:
+        data = request.get_json(force=True)
+        blacklisted = data.get('blacklisted', False)
+        reason = data.get('reason', '') if blacklisted else ''
+
+        visitor_ref = db.reference(f'visitors/{visitor_id}')
+        visitor_data = visitor_ref.get()
+
+        if not visitor_data:
+            return jsonify({"error": "Visitor not found"}), 404
+
+        # Store consistently as string for clean mapping in frontend
+        blacklist_value = "yes" if blacklisted else "no"
+
+        visitor_ref.update({
+            'blacklisted': blacklist_value,
+            'blacklist_reason': reason
+        })
+
+        return jsonify({
+            "success": True,
+            "blacklisted": blacklist_value,
+            "reason": reason
+        }), 200
+
+    except Exception as e:
+        print("⚠️ Blacklist update error:", e)
+        return jsonify({"error": str(e)}), 500
+
+# Load your trained sentiment model once
+with open("sentiment_analysis.pkl", "rb") as f:
+    sentiment_model = pickle.load(f)
+from flask import Flask, render_template_string, request, abort # Import abort for 404
+from datetime import datetime, timedelta
+# Assuming db and db.reference are properly imported
+
+# --- New Visitor Detail Route ---
+
+# @app.route('/visitor/<visitor_id>')
+# def visitor_detail(visitor_id):
+#     """Fetches and displays detailed information for a single visitor."""
+#     visitors_ref = db.reference('visitors')
+    
+#     # 1. Fetch specific visitor data using the ID
+#     visitor_data = visitors_ref.child(visitor_id).get()
+    
+#     if not visitor_data:
+#         # Return a 404 error if the ID is not found in the database
+#         return abort(404, description="Visitor record not found.")
+
+#     # 2. Process data (similar logic as the list page)
+#     # Convert blacklist status
+#     raw_blacklist = visitor_data.get('blacklisted', False)
+#     if isinstance(raw_blacklist, str):
+#         blacklisted = raw_blacklist.strip().lower() in ['yes', 'true', '1']
+#     else:
+#         blacklisted = bool(raw_blacklist)
+
+#     # Determine current status and check for exceeded time
+#     now = datetime.now()
+#     status = visitor_data.get('status', 'Checked-Out')
+#     check_in_time = visitor_data.get('check_in_time')
+#     expected_checkout = visitor_data.get('expected_checkout_time')
+    
+#     if status.lower() == 'checked-in' and check_in_time and expected_checkout:
+#         try:
+#             checkout_dt = datetime.strptime(expected_checkout, "%Y-%m-%d %H:%M:%S")
+#             if now > checkout_dt:
+#                 status = 'Exceeded'
+#         except ValueError:
+#             pass
+            
+#     # Calculate number of visits
+#     visits = visitor_data.get('visits', {})
+#     num_visits = len(visits) if isinstance(visits, dict) else 0
+
+#     # Prepare the final data structure
+#     visitor = {
+#         'id': visitor_id,
+#         'unique_id': visitor_data.get('unique_id', 'N/A'),
+#         'name': visitor_data.get('name', 'N/A'),
+#         'contact': visitor_data.get('contact', 'N/A'),
+#         'purpose': visitor_data.get('purpose', 'N/A'),
+#         'status': status,
+#         'blacklisted': blacklisted,
+#         'blacklist_reason': visitor_data.get('blacklist_reason', 'N/A'),
+#         'transactions': visitor_data.get('transactions', {}),
+#         'visit_date': visitor_data.get('visit_date', 'N/A'),
+#         'num_visits': num_visits,
+#         'check_in_time': check_in_time if check_in_time else 'N/A',
+#         'expected_checkout_time': expected_checkout if expected_checkout else 'N/A',
+        
+#     }
+
+#     # 3. HTML Template for Detailed View
+#     DETAIL_HTML = """
+#     <!DOCTYPE html>
+#     <html lang="en">
+#     <head>
+#         <meta charset="UTF-8">
+#         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+#         <title>Visitor Detail: {{ visitor.name }}</title>
+#         <script src="https://cdn.tailwindcss.com"></script>
+#         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+#         <style> .status-pill { @apply px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider; } </style>
+#     </head>
+#     <body class="min-h-screen bg-gray-50 p-6">
+#         <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-8 border border-gray-100">
+            
+#             <a href="/visitors" class="text-blue-600 hover:text-blue-800 text-sm mb-4 inline-block">
+#                 <i class="fas fa-arrow-left mr-1"></i> Back to Dashboard
+#             </a>
+
+#             <h1 class="text-3xl font-bold mb-2 text-gray-900 flex items-center">
+#                 Visitor Record: {{ visitor.name }}
+#             </h1>
+#             <p class="text-gray-500 mb-6">Unique ID: <span class="font-mono text-gray-700">{{ visitor.unique_id }}</span></p>
+
+#             <div class="mb-6 p-4 rounded-lg
+# {% if visitor.status == 'Checked-In' or visitor.status == 'Approved' %}
+# bg-green-50 border-green-300
+# {% elif visitor.status == 'Exceeded' or visitor.status == 'Blacklisted' or visitor.status == 'Rejected' %}
+# bg-red-50 border-red-300
+# {% elif visitor.status == 'Registered' or visitor.status == 'Rescheduled' %}
+# bg-yellow-50 border-yellow-300
+# {% else %}
+# bg-gray-50 border-gray-300
+# {% endif %}
+# border flex justify-between items-center shadow-sm">
+# <p class="text-xl font-semibold">Current Status:</p>
+
+# {% if visitor.status == 'Checked-In' %}
+# <span class="bg-green-100 text-green-700 border border-green-400 px-3 py-1 text-sm font-medium rounded-full">Checked-In</span>
+
+# {% elif visitor.status == 'Approved' %}
+# <!-- NEW: Approved status - Blue/Green for ready to check-in -->
+# <span class="bg-blue-100 text-blue-700 border border-blue-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-check-circle mr-1"></i>Approved</span>
+
+# {% elif visitor.status == 'Registered' %}
+# <!-- NEW: Registered status - Yellow for pending/neutral -->
+# <span class="bg-yellow-100 text-yellow-700 border border-yellow-400 px-3 py-1 text-sm font-medium rounded-full">Registered</span>
+
+# {% elif visitor.status == 'Rescheduled' %}
+# <!-- NEW: Rescheduled status - Yellow for neutral/pending -->
+# <span class="bg-yellow-100 text-yellow-700 border border-yellow-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-calendar-alt mr-1"></i>Rescheduled</span>
+
+# {% elif visitor.status == 'Rejected' %}
+# <!-- NEW: Rejected status - Red for failure -->
+# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-times-circle mr-1"></i>Rejected</span>
+
+# {% elif visitor.status == 'Checked-Out' %}
+# <span class="bg-gray-200 text-gray-700 px-3 py-1 text-sm font-medium rounded-full">Checked-Out</span>
+
+# {% elif visitor.status == 'Exceeded' %}
+# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-exclamation-triangle mr-1"></i>Time Exceeded</span>
+
+# {% elif visitor.status == 'Blacklisted' %}
+# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-ban mr-1"></i>Blacklisted</span>
+
+# {% else %}
+# <!-- Fallback for any other unknown status -->
+# <span class="bg-gray-100 text-gray-700 border border-gray-400 px-3 py-1 text-sm font-medium rounded-full">Status Unknown</span>
+
+# {% endif %}
+
+# </div>
+
+#             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+#                 <div class="space-y-4">
+#                     <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Personal & Visit Data</h2>
+                    
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Contact:</span>
+#                         <span class="text-gray-800">{{ visitor.contact }}</span>
+#                     </div>
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Purpose:</span>
+#                         <span class="text-gray-800">{{ visitor.purpose }}</span>
+#                     </div>
+                    
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Last Visit Date:</span>
+#                         <span class="text-gray-800">{{ visitor.visit_date }}</span>
+#                     </div>
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Total Visits:</span>
+#                         <span class="text-blue-700 font-bold">{{ visitor.num_visits }}</span>
+#                     </div>
+#                 </div>
+
+#                 <div class="space-y-4">
+#                     <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Entry & Security</h2>
+
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Check-In Time:</span>
+#                         <span class="text-gray-800">{{ visitor.check_in_time }}</span>
+#                     </div>
+#                     <div class="flex justify-between border-b pb-1">
+#                         <span class="font-medium text-gray-600">Expected Check-Out:</span>
+#                         <span class="text-gray-800">{{ visitor.expected_checkout_time }}</span>
+#                     </div>
+                    
+                    
+#                     <div class="p-3 mt-4 rounded-lg {% if visitor.blacklisted %}bg-red-50 border-red-400{% else %}bg-green-50 border-green-400{% endif %} border">
+#                         <div class="flex justify-between items-center mb-1">
+#                             <span class="font-bold text-lg text-gray-700">Blacklisted:</span>
+#                             <span class="status-pill {% if visitor.blacklisted %}bg-red-600 text-white{% else %}bg-green-600 text-white{% endif %}">
+#                                 {% if visitor.blacklisted %} YES {% else %} NO {% endif %}
+#                             </span>
+#                         </div>
+#                         <p class="text-sm text-gray-600 italic">
+#                             Reason: {{ visitor.blacklist_reason if visitor.blacklist_reason != 'N/A' else 'N/A' }}
+#                         </p>
+#                     </div>
+
+#                     <div class="pt-4 flex justify-end">
+#                          {% if visitor.blacklisted %}
+#                              <button onclick="alert('Functionality needs to be implemented. Visitor ID: {{ visitor.id }}')"
+#                                     class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-4 py-2 text-sm rounded-lg shadow-md transition duration-150 ease-in-out">
+#                                 <i class="fas fa-undo mr-1"></i> Unblock Visitor
+#                             </button>
+#                         {% else %}
+#                             <button onclick="alert('Functionality needs to be implemented. Visitor ID: {{ visitor.id }}')"
+#                                     class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 text-sm rounded-lg shadow-md transition duration-150 ease-in-out">
+#                                 <i class="fas fa-user-slash mr-1"></i> Blacklist Visitor
+#                             </button>
+#                         {% endif %}
+#                     </div>
+#                 </div>
+#             </div>
+
+#             <div class="mt-8 border-t pt-6">
+#                 <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Transaction History ({{ visitor.transactions|length }})</h2>
+#                 {% if visitor.transactions %}
+#                 <ul class="space-y-3">
+#                     {% for tx_id, tx in visitor.transactions.items() %}
+#                     <li class="bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
+#                         <div class="flex justify-between text-sm">
+#                             <span class="font-mono text-xs text-gray-500">TX ID: {{ tx_id }}</span>
+#                             <span class="font-semibold text-gray-700">{{ tx.get('duration_total', 'N/A') }} Total</span>
+#                         </div>
+#                         <div class="flex justify-between text-lg font-medium text-gray-800">
+#                             <span>Check-In: **{{ tx.get('check_in', 'N/A') }}**</span>
+#                             <span>Check-Out: **{{ tx.get('check_out', 'N/A') }}**</span>
+#                         </div>
+#                     </li>
+#                     {% endfor %}
+#                 </ul>
+#                 {% else %}
+#                     <p class="text-gray-500 italic">No historical transactions available for this visitor.</p>
+#                 {% endif %}
+#             </div>
+            
+#         </div>
+#     </body>
+#     </html>
+#     """
+#     return render_template_string(DETAIL_HTML, visitor=visitor) 
+
+@app.route('/visitor/<visitor_id>')
+def visitor_detail(visitor_id):
+    """Fetches and displays detailed information for a single visitor."""
+    visitors_ref = db.reference('visitors')
+    
+    # 1. Fetch specific visitor data using the ID
+    visitor_data = visitors_ref.child(visitor_id).get()
+    
+    if not visitor_data:
+        # Return a 404 error if the ID is not found in the database
+        return abort(404, description="Visitor record not found.")
+
+    # 2. Extract data from the updated storage structure
+    basic_info = visitor_data.get('basic_info', {})
+    
+    # Get visitor details from basic_info
+    visitor_name = basic_info.get('name', 'N/A')
+    visitor_contact = basic_info.get('contact', 'N/A')
+    
+    # Blacklist info from basic_info
+    raw_blacklist = basic_info.get('blacklisted', 'no')
+    if isinstance(raw_blacklist, str):
+        blacklisted = raw_blacklist.strip().lower() in ['yes', 'true', '1']
+    else:
+        blacklisted = bool(raw_blacklist)
+    blacklist_reason = basic_info.get('blacklist_reason', 'No reason provided')
+    
+    # Get photo information - use photo_url from basic_info
+    photo_url = basic_info.get('photo_url', '')
+    
+    # Construct image path - use photo_url directly as it's already the correct path
+    image_path = photo_url if photo_url else None
+    
+    # Get visits collection
+    visits = visitor_data.get('visits', {})
+    num_visits = len(visits) if isinstance(visits, dict) else 0
+    
+    # Get the most recent visit details for main display
+    current_status = 'Registered'
+    purpose = 'N/A'
+    employee_name = 'N/A'
+    visit_date = 'N/A'
+    duration = 'N/A'
+    check_in_time = 'N/A'
+    check_out_time = 'N/A'
+    expected_checkout_time = 'N/A'
+    
+    if visits:
+        # Find the most recent visit by timestamp
+        sorted_visits = []
+        for visit_id, visit_data in visits.items():
+            visit_timestamp = visit_data.get('created_at') or visit_data.get('check_in_time')
+            if visit_timestamp:
+                try:
+                    visit_dt = datetime.strptime(visit_timestamp, "%Y-%m-%d %H:%M:%S")
+                    sorted_visits.append((visit_dt, visit_id, visit_data))
+                except ValueError:
+                    continue
+        
+        if sorted_visits:
+            # Sort by timestamp (most recent first)
+            sorted_visits.sort(key=lambda x: x[0], reverse=True)
+            last_visit_time, recent_visit_id, recent_visit_data = sorted_visits[0]
+            
+            # Get status and details from the most recent visit
+            status_from_visit = recent_visit_data.get('status', 'Registered')
+            # Normalize status values
+            if status_from_visit.lower() in ['checked_out', 'checked-out', 'checked out']:
+                current_status = 'Checked Out'
+            elif status_from_visit.lower() in ['checked_in', 'checked-in', 'checked in']:
+                current_status = 'Checked In'
+            elif status_from_visit.lower() in ['approved', 'approve']:
+                current_status = 'Approved'
+            elif status_from_visit.lower() in ['registered', 'register']:
+                current_status = 'Registered'
+            elif status_from_visit.lower() in ['rejected', 'reject']:
+                current_status = 'Rejected'
+            elif status_from_visit.lower() in ['rescheduled', 'reschedule']:
+                current_status = 'Rescheduled'
+            elif status_from_visit.lower() in ['exceeded', 'time_exceeded']:
+                current_status = 'Exceeded'
+            else:
+                current_status = status_from_visit
+            
+            purpose = recent_visit_data.get('purpose', 'N/A')
+            employee_name = recent_visit_data.get('employee_name', 'N/A')
+            visit_date = recent_visit_data.get('visit_date', 'N/A')
+            duration = recent_visit_data.get('duration', 'N/A')
+            check_in_time = recent_visit_data.get('check_in_time', 'N/A')
+            check_out_time = recent_visit_data.get('check_out_time', 'N/A')
+            expected_checkout_time = recent_visit_data.get('expected_checkout_time', 'N/A')
+
+    # Determine if visitor has exceeded allowed time
+    now = datetime.now()
+    status = current_status
+    if status == 'Checked In' and check_in_time != 'N/A' and expected_checkout_time != 'N/A':
+        try:
+            checkout_dt = datetime.strptime(expected_checkout_time, "%Y-%m-%d %H:%M:%S")
+            if now > checkout_dt:
+                status = 'Exceeded'
+        except ValueError:
+            pass
+
+    # Get transactions for history
+    transactions = visitor_data.get('transactions', {})
+    
+    # Get registered_at from the earliest transaction or use current time
+    registered_at = 'N/A'
+    if transactions:
+        earliest_transaction = min(transactions.keys())
+        registered_at = transactions[earliest_transaction].get('timestamp', 'N/A')
+
+    # Prepare visit history for display
+    visit_history = []
+    for visit_id, visit in visits.items():
+        visit_history.append({
+            'id': visit_id,
+            'purpose': visit.get('purpose', 'N/A'),
+            'employee_name': visit.get('employee_name', 'N/A'),
+            'visit_date': visit.get('visit_date', 'N/A'),
+            'check_in_time': visit.get('check_in_time', 'N/A'),
+            'check_out_time': visit.get('check_out_time', 'N/A'),
+            'expected_checkout_time': visit.get('expected_checkout_time', 'N/A'),
+            'duration': visit.get('duration', 'N/A'),
+            'status': visit.get('status', 'N/A'),
+            'created_at': visit.get('created_at', 'N/A')
+        })
+    
+    # Sort visit history by date (newest first)
+    visit_history.sort(key=lambda x: x.get('created_at', ''), reverse=True)
+
+    # Prepare the final data structure
+    visitor = {
+        'id': visitor_id,
+        'unique_id': visitor_id,
+        'name': visitor_name,
+        'contact': visitor_contact,
+        'purpose': purpose,
+        'employee_name': employee_name,
+        'duration': duration,
+        'status': status,
+        'blacklisted': blacklisted,
+        'blacklist_reason': blacklist_reason,
+        'transactions': transactions,
+        'visits': visits,
+        'visit_history': visit_history,
+        'visit_date': visit_date,
+        'num_visits': num_visits,
+        'check_in_time': check_in_time,
+        'check_out_time': check_out_time,
+        'expected_checkout_time': expected_checkout_time,
+        'registered_at': registered_at,
+        'image_path': image_path
+    }
+
+    # 3. HTML Template for Detailed View
+    DETAIL_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Visitor Detail: {{ visitor.name }}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+            .status-badge {
+                @apply px-3 py-1 rounded-full text-xs font-semibold capitalize;
+            }
+            .card-hover {
+                transition: all 0.3s ease;
+            }
+            .card-hover:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.1);
+            }
+            .gradient-bg {
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            }
+            /* Toggle Switch Styles */
+            .toggle-switch {
+                position: relative;
+                display: inline-block;
+                width: 50px;
+                height: 24px;
+            }
+            .toggle-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #ccc;
+                transition: .4s;
+                border-radius: 24px;
+            }
+            .toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 4px;
+                bottom: 4px;
+                background-color: white;
+                transition: .4s;
+                border-radius: 50%;
+            }
+            input:checked + .toggle-slider {
+                background-color: #EF4444;
+            }
+            input:checked + .toggle-slider:before {
+                transform: translateX(26px);
+            }
+        </style>
+        <script>
+            // Blacklist functionality for visitor details page
+            async function toggleBlacklistDetail(visitorId, currentState) {
+                let reason = '';
+                const newState = !currentState;
+                
+                if (newState) {
+                    // Blacklisting - ask for reason
+                    reason = prompt("Enter reason for blacklisting this visitor:");
+                    if (reason === null) {
+                        return; // User clicked cancel
+                    }
+                    if (!reason.trim()) {
+                        alert("Reason is required for blacklisting.");
+                        return;
+                    }
+                } else {
+                    // Unblacklisting - ask for confirmation
+                    if (!confirm('Are you sure you want to remove this visitor from blacklist?')) {
+                        return;
+                    }
+                    reason = 'No reason provided';
+                }
+                
+                try {
+                    const response = await fetch(`/blacklist/${visitorId}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({ 
+                            blacklisted: newState, 
+                            reason: reason 
+                        })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    if (result.success) {
+                        showNotification(result.message, 'success');
+                        // Reload after a short delay to show the notification
+                        setTimeout(() => {
+                            location.reload();
+                        }, 1000);
+                    } else {
+                        throw new Error(result.message);
+                    }
+                } catch (error) {
+                    showNotification(`Error: ${error.message}`, 'error');
+                }
+            }
+
+            // Notification function for visitor details page
+            function showNotification(message, type = 'info') {
+                // Remove existing notification
+                const existingNotification = document.getElementById('visitor-detail-notification');
+                if (existingNotification) {
+                    existingNotification.remove();
+                }
+                
+                const notification = document.createElement('div');
+                notification.id = 'visitor-detail-notification';
+                notification.className = `fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg text-white font-medium transform transition-transform duration-300 ${
+                    type === 'success' ? 'bg-green-500' : 
+                    type === 'error' ? 'bg-red-500' : 
+                    'bg-blue-500'
+                }`;
+                notification.textContent = message;
+                
+                document.body.appendChild(notification);
+                
+                // Auto remove after 5 seconds
+                setTimeout(() => {
+                    if (notification.parentNode) {
+                        notification.parentNode.removeChild(notification);
+                    }
+                }, 5000);
+            }
+        </script>
+    </head>
+    <body class="min-h-screen bg-gray-50">
+        <!-- Header -->
+        <div class="gradient-bg text-white p-6 shadow-lg">
+            <div class="max-w-7xl mx-auto">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-4">
+                        <a href="/visitors" class="text-white hover:text-gray-200 transition-colors">
+                            <i class="fas fa-arrow-left text-xl"></i>
+                        </a>
+                        <div>
+                            <h1 class="text-3xl font-bold">Visitor Details</h1>
+                            <p class="text-blue-100">Complete information for {{ visitor.name }}</p>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm text-blue-200">Total Visits</p>
+                        <p class="text-2xl font-bold">{{ visitor.num_visits }}</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-7xl mx-auto p-6 -mt-8">
+            <!-- Main Card -->
+            <div class="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+                <!-- Visitor Header -->
+                <div class="bg-gradient-to-r from-blue-50 to-indigo-50 p-8 border-b">
+                    <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between">
+                        <div class="flex items-center space-x-6 mb-4 lg:mb-0">
+                            <div class="relative">
+                                {% if visitor.image_path %}
+                                <img src="{{ visitor.image_path }}" 
+                                     alt="{{ visitor.name }}" 
+                                     class="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-lg">
+                                {% else %}
+                                <div class="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-lg">
+                                    {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+                                </div>
+                                {% endif %}
+                                <div class="absolute -bottom-2 -right-2 bg-white rounded-full p-1 shadow-lg">
+                                    {% if visitor.status == 'Checked In' %}
+                                    <div class="w-6 h-6 bg-green-500 rounded-full border-2 border-white"></div>
+                                    {% elif visitor.status == 'Exceeded' %}
+                                    <div class="w-6 h-6 bg-red-500 rounded-full border-2 border-white"></div>
+                                    {% elif visitor.status == 'Checked Out' %}
+                                    <div class="w-6 h-6 bg-gray-500 rounded-full border-2 border-white"></div>
+                                    {% else %}
+                                    <div class="w-6 h-6 bg-yellow-500 rounded-full border-2 border-white"></div>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div>
+                                <h2 class="text-3xl font-bold text-gray-900">{{ visitor.name }}</h2>
+                                <p class="text-gray-600 mt-1">{{ visitor.contact }}</p>
+                                <p class="text-sm text-gray-500 mt-1">ID: {{ visitor.unique_id }}</p>
+                            </div>
+                        </div>
+                        
+                        <!-- Status Badge -->
+                        <div class="bg-white rounded-xl px-6 py-3 shadow-lg border">
+                            {% set status_config = {
+                                'Registered': {'color': 'gray', 'icon': 'user-plus', 'text': 'text-gray-700'},
+                                'Approved': {'color': 'yellow', 'icon': 'check-circle', 'text': 'text-yellow-700'},
+                                'Checked In': {'color': 'green', 'icon': 'user-check', 'text': 'text-green-700'},
+                                'Checked Out': {'color': 'purple', 'icon': 'user-times', 'text': 'text-purple-700'},
+                                'Rescheduled': {'color': 'blue', 'icon': 'calendar-alt', 'text': 'text-blue-700'},
+                                'Rejected': {'color': 'red', 'icon': 'times-circle', 'text': 'text-red-700'},
+                                'Exceeded': {'color': 'orange', 'icon': 'exclamation-triangle', 'text': 'text-orange-700'}
+                            } %}
+                            {% set config = status_config.get(visitor.status, {'color': 'gray', 'icon': 'question', 'text': 'text-gray-700'}) %}
+                            <div class="flex items-center space-x-3">
+                                <div class="flex items-center">
+                                    <i class="fas fa-{{ config.icon }} text-2xl {{ config.text }}"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm text-gray-500">Current Status</p>
+                                    <p class="text-lg font-bold {{ config.text }}">{{ visitor.status }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Content Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 p-8">
+                    <!-- Personal Information -->
+                    <div class="lg:col-span-2 space-y-6">
+                        <h3 class="text-xl font-semibold text-gray-900 border-b pb-3 flex items-center">
+                            <i class="fas fa-user-circle mr-3 text-blue-500"></i>
+                            Personal Information
+                        </h3>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-gray-50 rounded-xl p-4 card-hover">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-envelope text-blue-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-gray-500">Contact</p>
+                                        <p class="font-semibold text-gray-900">{{ visitor.contact }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 rounded-xl p-4 card-hover">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-calendar-day text-green-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-gray-500">Registered</p>
+                                        <p class="font-semibold text-gray-900">{{ visitor.registered_at }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 rounded-xl p-4 card-hover">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-bullseye text-purple-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-gray-500">Purpose</p>
+                                        <p class="font-semibold text-gray-900">{{ visitor.purpose }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="bg-gray-50 rounded-xl p-4 card-hover">
+                                <div class="flex items-center space-x-3">
+                                    <div class="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
+                                        <i class="fas fa-user-tie text-indigo-600"></i>
+                                    </div>
+                                    <div>
+                                        <p class="text-sm text-gray-500">Employee</p>
+                                        <p class="font-semibold text-gray-900">{{ visitor.employee_name if visitor.employee_name != 'N/A' else 'Not specified' }}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Visit Timeline -->
+                        <div class="mt-8">
+                            <h3 class="text-xl font-semibold text-gray-900 border-b pb-3 flex items-center">
+                                <i class="fas fa-clock mr-3 text-green-500"></i>
+                                Current Visit Details
+                            </h3>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                                <div class="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 border border-green-200 card-hover">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-sign-in-alt text-green-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-gray-500">Check-In</p>
+                                            <p class="font-semibold text-gray-900">{{ visitor.check_in_time }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-200 card-hover">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-hourglass-end text-blue-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-gray-500">Expected Check-Out</p>
+                                            <p class="font-semibold text-gray-900">{{ visitor.expected_checkout_time }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-4 border border-purple-200 card-hover">
+                                    <div class="flex items-center space-x-3">
+                                        <div class="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                                            <i class="fas fa-sign-out-alt text-purple-600"></i>
+                                        </div>
+                                        <div>
+                                            <p class="text-sm text-gray-500">Check-Out</p>
+                                            <p class="font-semibold text-gray-900">{{ visitor.check_out_time if visitor.check_out_time != 'N/A' else 'Not checked out' }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Security & Actions -->
+                    <div class="space-y-6">
+                        <!-- Blacklist Status with Toggle -->
+                        <div class="bg-white rounded-xl border {% if visitor.blacklisted %}border-red-300 bg-red-50{% else %}border-green-300 bg-green-50{% endif %} p-6 card-hover">
+                            <div class="flex items-center justify-between mb-4">
+                                <h4 class="font-semibold text-gray-900 flex items-center">
+                                    <i class="fas fa-{% if visitor.blacklisted %}ban text-red-600{% else %}check-circle text-green-600{% endif %} mr-2"></i>
+                                    Blacklist Status
+                                </h4>
+                                <div class="flex items-center space-x-3">
+                                    <span class="status-badge {% if visitor.blacklisted %}bg-red-100 text-red-800{% else %}bg-green-100 text-green-800{% endif %}">
+                                        {% if visitor.blacklisted %}BLACKLISTED{% else %}CLEAN{% endif %}
+                                    </span>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" 
+                                               {{ 'checked' if visitor.blacklisted else '' }}
+                                               onchange="toggleBlacklistDetail('{{ visitor.id }}', {{ 'true' if visitor.blacklisted else 'false' }})">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <p class="text-sm text-gray-600">
+                                <i class="fas fa-info-circle mr-1"></i>
+                                {{ visitor.blacklist_reason if visitor.blacklist_reason != 'No reason provided' else 'No blacklist issues' }}
+                            </p>
+                        </div>
+
+                        <!-- Quick Actions -->
+                        <div class="bg-white rounded-xl border border-gray-200 p-6 card-hover">
+                            <h4 class="font-semibold text-gray-900 mb-4 flex items-center">
+                                <i class="fas fa-bolt text-yellow-500 mr-2"></i>
+                                Quick Actions
+                            </h4>
+                            <div class="space-y-3">
+                                <button onclick="window.print()"
+                                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-2.5 px-4 rounded-lg transition flex items-center justify-center">
+                                    <i class="fas fa-print mr-2"></i> Print Record
+                                </button>
+                                
+                                <button onclick="window.location.href='/visitors'"
+                                        class="w-full bg-purple-600 hover:bg-purple-700 text-white font-medium py-2.5 px-4 rounded-lg transition flex items-center justify-center">
+                                    <i class="fas fa-arrow-left mr-2"></i> Back to Visitors
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visit History -->
+                <div class="border-t border-gray-200 p-8">
+                    <h3 class="text-xl font-semibold text-gray-900 mb-6 flex items-center">
+                        <i class="fas fa-history mr-3 text-purple-500"></i>
+                        Visit History ({{ visitor.num_visits }} visits)
+                    </h3>
+                    
+                    {% if visitor.visit_history %}
+                    <div class="space-y-4">
+                        {% for visit in visitor.visit_history %}
+                        <div class="bg-gray-50 rounded-xl p-6 border border-gray-200 card-hover">
+                            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+                                <div class="flex-1">
+                                    <div class="flex items-center space-x-4 mb-3">
+                                        <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+                                            Visit {{ loop.index }}
+                                        </span>
+                                        <span class="text-sm text-gray-500">{{ visit.visit_date }}</span>
+                                        {% set visit_status_config = {
+                                            'Checked In': {'color': 'green', 'icon': 'user-check'},
+                                            'Checked Out': {'color': 'purple', 'icon': 'user-times'},
+                                            'Exceeded': {'color': 'orange', 'icon': 'exclamation-triangle'},
+                                            'Approved': {'color': 'yellow', 'icon': 'check-circle'},
+                                            'Registered': {'color': 'gray', 'icon': 'user-plus'}
+                                        } %}
+                                        {% set visit_config = visit_status_config.get(visit.status, {'color': 'gray', 'icon': 'question'}) %}
+                                        <span class="status-badge bg-{{ visit_config.color }}-100 text-{{ visit_config.color }}-800">
+                                            <i class="fas fa-{{ visit_config.icon }} mr-1"></i>
+                                            {{ visit.status }}
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                                        <div>
+                                            <p class="text-gray-500">Purpose</p>
+                                            <p class="font-medium text-gray-900">{{ visit.purpose }}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-gray-500">Employee</p>
+                                            <p class="font-medium text-gray-900">{{ visit.employee_name if visit.employee_name != 'N/A' else 'Not specified' }}</p>
+                                        </div>
+                                        <div>
+                                            <p class="text-gray-500">Duration</p>
+                                            <p class="font-medium text-gray-900">{{ visit.duration if visit.duration != 'N/A' else 'Not specified' }}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-3 text-xs">
+                                        <div class="flex items-center space-x-2 text-gray-500">
+                                            <i class="fas fa-sign-in-alt"></i>
+                                            <span>Check-in: {{ visit.check_in_time if visit.check_in_time != 'N/A' else 'Not recorded' }}</span>
+                                        </div>
+                                        <div class="flex items-center space-x-2 text-gray-500">
+                                            <i class="fas fa-sign-out-alt"></i>
+                                            <span>Check-out: {{ visit.check_out_time if visit.check_out_time != 'N/A' else 'Not recorded' }}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="text-center py-12 text-gray-500">
+                        <i class="fas fa-history text-5xl mb-4 opacity-50"></i>
+                        <p class="text-lg font-medium">No visit history available</p>
+                        <p class="text-sm mt-2">This visitor hasn't completed any visits yet.</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(DETAIL_HTML, visitor=visitor)
+@app.route('/feedback_analysis')
+def feedback_analysis():
+    visitors_ref = db.reference('visitors')
+    all_visitors = visitors_ref.get()
+
+    feedback_results = []
+    sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
+
+    def analyze_sentiment(text):
+        """Analyze sentiment of text using the loaded model"""
+        if not text or not sentiment_model:
+            return "Neutral"
+        
+        # Clean and preprocess text
+        text = str(text).strip()
+        if len(text) < 3:
+            return "Neutral"
+        
+        # Skip irrelevant texts
+        irrelevant_keywords = ['irrelevant', 'not relevant', 'none', 'na', 'n/a', 'no feedback']
+        if any(keyword in text.lower() for keyword in irrelevant_keywords):
+            return "Neutral"
+        
+        try:
+            # Predict sentiment - adjust this based on your model's predict method
+            prediction = sentiment_model.predict([text])[0]
+            
+            # Map prediction to sentiment labels
+            # Adjust these mappings based on your model's output format
+            if isinstance(prediction, (int, np.integer)):
+                # If model returns 0, 1, 2 etc.
+                if prediction == 0:
+                    return "Negative"
+                elif prediction == 1:
+                    return "Neutral"
+                elif prediction == 2:
+                    return "Positive"
+                else:
+                    return "Neutral"
+            elif isinstance(prediction, str):
+                # If model returns string labels
+                prediction_lower = prediction.lower()
+                if 'pos' in prediction_lower:
+                    return "Positive"
+                elif 'neg' in prediction_lower:
+                    return "Negative"
+                else:
+                    return "Neutral"
+            else:
+                return "Neutral"
+                
+        except Exception as e:
+            print(f"Sentiment analysis error for text '{text}': {e}")
+            return "Neutral"
+
+    if all_visitors:
+        for visitor_id, visitor_data in all_visitors.items():
+            # Get basic_info for visitor details
+            basic_info = visitor_data.get('basic_info', {})
+            feedbacks = visitor_data.get('feedbacks', {})
+            
+            # Extract visitor name and contact from basic_info
+            visitor_name = basic_info.get('name', 'Unknown')
+            visitor_email = basic_info.get('contact', 'N/A')
+            
+            # Process all feedbacks for this visitor
+            for feedback_id, feedback_data in feedbacks.items():
+                text = feedback_data.get('text', '')
+                timestamp = feedback_data.get('timestamp', 'N/A')
+                
+                # Skip empty feedback
+                if not text:
+                    continue
+
+                # Perform Sentiment Analysis
+                sentiment_label = analyze_sentiment(text)
+
+                # Count sentiments
+                if sentiment_label in sentiment_counts:
+                    sentiment_counts[sentiment_label] += 1
+                else:
+                    sentiment_counts["Neutral"] += 1
+
+                feedback_results.append({
+                    "visitor_name": visitor_name,
+                    "visitor_email": visitor_email,
+                    "text": text,
+                    "timestamp": timestamp,
+                    "sentiment": sentiment_label
+                })
+
+    # Sort feedback by timestamp (newest first)
+    feedback_results.sort(key=lambda x: x['timestamp'], reverse=True)
+
+    return render_template_string("""
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Feedback Analysis</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    </head>
+    <body class="bg-gray-50 min-h-screen p-8">
+        <div class="max-w-7xl mx-auto">
+            <h1 class="text-3xl font-bold text-gray-900 mb-8">Feedback Sentiment Analysis</h1>
+            
+            <!-- Sentiment Summary Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-green-100 border-l-4 border-green-500 p-6 rounded-lg shadow">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-smile text-green-600 text-2xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-green-800">Positive</p>
+                            <p class="text-2xl font-bold text-green-900">{{ sentiment_counts.Positive }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-yellow-100 border-l-4 border-yellow-500 p-6 rounded-lg shadow">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-meh text-yellow-600 text-2xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-yellow-800">Neutral</p>
+                            <p class="text-2xl font-bold text-yellow-900">{{ sentiment_counts.Neutral }}</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-red-100 border-l-4 border-red-500 p-6 rounded-lg shadow">
+                    <div class="flex items-center">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-frown text-red-600 text-2xl"></i>
+                        </div>
+                        <div class="ml-4">
+                            <p class="text-sm font-medium text-red-800">Negative</p>
+                            <p class="text-2xl font-bold text-red-900">{{ sentiment_counts.Negative }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sentiment Chart -->
+            <div class="bg-white p-6 rounded-lg shadow mb-8">
+                <h2 class="text-xl font-semibold mb-4">Sentiment Distribution</h2>
+                <div class="h-64">
+                    <canvas id="sentimentChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Feedback Count -->
+            <div class="bg-white p-4 rounded-lg shadow mb-4">
+                <p class="text-lg font-semibold text-gray-700">
+                    Total Feedback: {{ feedback_results|length }}
+                </p>
+            </div>
+
+            
+              
+        </div>
+
+        <script>
+            // Sentiment Chart
+            const ctx = document.getElementById('sentimentChart').getContext('2d');
+            const sentimentChart = new Chart(ctx, {
+                type: 'pie',
+                data: {
+                    labels: ['Positive', 'Neutral', 'Negative'],
+                    datasets: [{
+                        data: [
+                            {{ sentiment_counts.Positive }},
+                            {{ sentiment_counts.Neutral }},
+                            {{ sentiment_counts.Negative }}
+                        ],
+                        backgroundColor: [
+                            '#10B981',
+                            '#F59E0B',
+                            '#EF4444'
+                        ],
+                        borderWidth: 2,
+                        borderColor: '#fff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const label = context.label || '';
+                                    const value = context.raw || 0;
+                                    const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                                    const percentage = total > 0 ? Math.round((value / total) * 100) : 0;
+                                    return `${label}: ${value} (${percentage}%)`;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        </script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    </body>
+    </html>
+    """, feedback_results=feedback_results, sentiment_counts=sentiment_counts)
+# --------------------------
+# Visitor Registration Page
+# --------------------------
+# Add preprocessing to clean text
+def preprocess_feedback(text):
+    # Remove extra whitespace, normalize text
+    text = ' '.join(text.split())
+    # Handle common issues
+    if text.lower() in ['irrelevant', 'none', 'na', 'n/a']:
+        return ""
+    return text
+
+    # In your route:
+    text = preprocess_feedback(feedback_data.get('text', ''))
+    if text:  # Only analyze non-empty, relevant text
+        sentiment_label = sentiment_model.predict([text])[0]
+    else:
+        sentiment_label = "Neutral"  # or "Not Available"
+@app.route('/register', methods=['GET', 'POST'])
+def visitor_registration():
+    token = request.args.get('token')
+    if not token:
+        return "Invalid registration link", 400
+
+    invitation = db.reference(f'invitations/{token}').get()
+    if not invitation:
+        return "Token not found", 404
+
+    if request.method == 'GET':
+        REG_HTML = f"""
+        <h1>Register for {invitation['email']}</h1>
+        <form method="POST">
+            <input type="text" name="name" placeholder="Full Name" required>
+            <input type="text" name="purpose" placeholder="Purpose" required>
+            <button type="submit">Submit</button>
+        </form>
+        """
+        return render_template_string(REG_HTML)
+
+    name = request.form.get('name')
+    purpose = request.form.get('purpose')
+
+    db.reference(f'visitors/{uuid.uuid4()}').set({
+        'unique_id': str(uuid.uuid4())[:8],
+        'name': name,
+        'email': invitation['email'],
+        'purpose': purpose,
+        'status': 'Enrolled',
+        'blacklisted': False,
+        'transactions': {}
+    })
+    db.reference(f'invitations/{token}').update({'status': 'Completed'})
+    return f"Registration complete for {name}"
+
+# --------------------------
+# Employee Management Routes
+# --------------------------
+@app.route('/employees')
+def employees_list():
+    employees_ref = db.reference('employees')
+    visitors_ref = db.reference('visitors')
+    
+    all_employees = employees_ref.get() or {}
+    all_visitors = visitors_ref.get() or {}
+    
+    # Calculate visitor counts for each employee
+    employee_analytics = {}
+    
+    for emp_id, emp_data in all_employees.items():
+        employee_name = emp_data.get('name', '')
+        visitor_count = 0
+        visitor_names = []
+        
+        # Check all visitors for association with this employee
+        for visitor_id, visitor_data in all_visitors.items():
+            # Get basic info from visitor
+            basic_info = visitor_data.get('basic_info', {})
+            visitor_name = basic_info.get('name', 'Unknown')
+            
+            # Check visits collection for employee association
+            visits = visitor_data.get('visits', {})
+            for visit_id, visit_data in visits.items():
+                # Check if this visit is associated with the employee
+                visit_employee_name = visit_data.get('employee_name', '')
+                purpose = visit_data.get('purpose', '')
+                
+                # Multiple ways to associate visitor with employee:
+                # 1. Direct employee name match in visit
+                # 2. Employee name mentioned in purpose
+                # 3. Employee name in transaction data
+                if (visit_employee_name == employee_name or
+                    employee_name.lower() in purpose.lower() or
+                    employee_name.lower() in visitor_name.lower()):
+                    
+                    visitor_count += 1
+                    if visitor_name not in visitor_names:
+                        visitor_names.append(visitor_name)
+                    break  # Count visitor only once per employee
+            
+            # Also check transactions for employee association
+            transactions = visitor_data.get('transactions', {})
+            for tx_id, tx_data in transactions.items():
+                tx_employee_name = tx_data.get('employee_name', '')
+                if tx_employee_name == employee_name:
+                    visitor_count += 1
+                    if visitor_name not in visitor_names:
+                        visitor_names.append(visitor_name)
+                    break
+        
+        employee_analytics[emp_id] = {
+            'visitor_count': visitor_count,
+            'recent_visitors': visitor_names[:5]  # Last 5 unique visitors
+        }
+    
+    # Calculate total visitors (unique visitors across all employees)
+    all_visitor_names = set()
+    for analytics in employee_analytics.values():
+        all_visitor_names.update(analytics['recent_visitors'])
+    total_visitors = len(all_visitor_names)
+    
+    # Calculate average visitors per employee
+    avg_visitors_per_employee = round(total_visitors / len(all_employees), 1) if all_employees else 0
+    
+    # Find top employee
+    top_employee_id = None
+    top_employee_count = 0
+    for emp_id, analytics in employee_analytics.items():
+        if analytics['visitor_count'] > top_employee_count:
+            top_employee_count = analytics['visitor_count']
+            top_employee_id = emp_id
+    
+    top_employee_name = all_employees.get(top_employee_id, {}).get('name', 'None') if top_employee_id else 'None'
+    
+    # Get unique departments
+    departments = list(set(emp.get('department', 'Not Specified') for emp in all_employees.values()))
+    
+    EMP_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Employee Analytics Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+            .metric-card {
+                transition: all 0.3s ease;
+                border-left: 4px solid;
+            }
+            .metric-card:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+            }
+            .status-badge {
+                @apply px-2 py-1 rounded-full text-xs font-semibold;
+            }
+        </style>
+    </head>
+    <body class="bg-gradient-to-br from-blue-50 to-gray-100 min-h-screen p-6">
+        <div class="max-w-8xl mx-auto">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-4xl font-bold text-gray-900">Employee Analytics</h1>
+                    <p class="text-gray-600 mt-2">Comprehensive employee and visitor management dashboard</p>
+                </div>
+                <div class="flex space-x-4">
+                    <button onclick="exportToCSV()" 
+                            class="bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 shadow-sm transition flex items-center">
+                        <i class="fas fa-file-export mr-2"></i>Export CSV
+                    </button>
+                    <button onclick="openAddModal()" 
+                            class="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded-lg shadow-sm transition flex items-center">
+                        <i class="fas fa-user-plus mr-2"></i>Add Employee
+                    </button>
+                </div>
+            </div>
+
+            <!-- Statistics Cards -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                <div class="metric-card bg-white rounded-xl p-6 shadow-sm border-l-blue-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Total Employees</p>
+                            <p class="text-3xl font-bold text-gray-900">{{ employees|length }}</p>
+                        </div>
+                        <div class="p-3 bg-blue-100 rounded-lg">
+                            <i class="fas fa-users text-blue-600 text-2xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-6 shadow-sm border-l-green-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Total Visitors</p>
+                            <p class="text-3xl font-bold text-gray-900">{{ total_visitors }}</p>
+                        </div>
+                        <div class="p-3 bg-green-100 rounded-lg">
+                            <i class="fas fa-user-check text-green-600 text-2xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-6 shadow-sm border-l-purple-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Avg Visitors/Employee</p>
+                            <p class="text-3xl font-bold text-gray-900">{{ avg_visitors_per_employee }}</p>
+                        </div>
+                        <div class="p-3 bg-purple-100 rounded-lg">
+                            <i class="fas fa-chart-line text-purple-600 text-2xl"></i>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="metric-card bg-white rounded-xl p-6 shadow-sm border-l-orange-500">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm font-medium text-gray-600">Top Employee</p>
+                            <p class="text-lg font-bold text-gray-900 truncate">{{ top_employee_name }}</p>
+                            <p class="text-sm text-gray-500">{{ top_employee_count }} visitors</p>
+                        </div>
+                        <div class="p-3 bg-orange-100 rounded-lg">
+                            <i class="fas fa-trophy text-orange-600 text-2xl"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Employee Table -->
+            <div class="bg-white rounded-xl shadow-sm overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-xl font-semibold text-gray-900">Employee Directory</h3>
+                        <div class="flex space-x-3">
+                            <input type="text" id="searchInput" 
+                                   placeholder="Search employees..." 
+                                   class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                   onkeyup="filterEmployees()">
+                            <select id="deptFilter" onchange="filterEmployees()" 
+                                    class="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="all">All Departments</option>
+                                {% for dept in departments %}
+                                <option value="{{ dept }}">{{ dept }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="overflow-x-auto">
+                    <table class="w-full">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Employee</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Contact</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Department</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visitor Count</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Recent Visitors</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            {% for emp_id, emp in employees.items() %}
+                            <tr class="hover:bg-gray-50 transition-colors employee-row" data-dept="{{ emp.department|lower if emp.department else '' }}">
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div class="flex-shrink-0 h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
+                                            {{ emp.name[0]|upper if emp.name else '?' }}
+                                        </div>
+                                        <div class="ml-4">
+                                            <div class="text-sm font-medium text-gray-900">{{ emp.name if emp.name else 'N/A' }}</div>
+                                            <div class="text-sm text-gray-500">{{ emp.email if emp.email else 'N/A' }}</div>
+                                        </div>
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">{{ emp.contact if emp.contact else 'N/A' }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <span class="status-badge bg-blue-100 text-blue-800">
+                                        {{ emp.department if emp.department else 'Not Specified' }}
+                                    </span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm text-gray-900">{{ emp.role if emp.role else 'N/A' }}</div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <span class="text-lg font-bold text-gray-900 mr-2">
+                                            {{ employee_analytics[emp_id].visitor_count if emp_id in employee_analytics else 0 }}
+                                        </span>
+                                        {% if emp_id in employee_analytics and employee_analytics[emp_id].visitor_count > 0 %}
+                                        <span class="text-green-600 text-sm">
+                                            <i class="fas fa-trending-up"></i>
+                                        </span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <div class="text-sm text-gray-600 max-w-xs">
+                                        {% if emp_id in employee_analytics and employee_analytics[emp_id].recent_visitors %}
+                                            {% for visitor in employee_analytics[emp_id].recent_visitors %}
+                                            <span class="inline-block bg-gray-100 rounded-full px-2 py-1 text-xs font-semibold text-gray-700 mr-1 mb-1">
+                                                {{ visitor }}
+                                            </span>
+                                            {% endfor %}
+                                            {% if employee_analytics[emp_id].recent_visitors|length >= 5 %}
+                                            <span class="text-xs text-gray-400">+more</span>
+                                            {% endif %}
+                                        {% else %}
+                                            <span class="text-gray-400 italic">No visitors</span>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                    <div class="flex space-x-2">
+                                        <button onclick="editEmployee('{{ emp_id }}')" 
+                                                class="text-blue-600 hover:text-blue-900 transition-colors" 
+                                                title="Edit Employee">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        
+                                        <button onclick="viewEmployeeVisitors('{{ emp_id }}')" 
+                                                class="text-green-600 hover:text-green-900 transition-colors" 
+                                                title="View Visitor Details">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        
+                                        <button onclick="deleteEmployee('{{ emp_id }}')" 
+                                                class="text-red-600 hover:text-red-900 transition-colors" 
+                                                title="Delete Employee">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            {% if not employees %}
+            <div class="text-center py-12">
+                <i class="fas fa-users text-4xl text-gray-400 mb-4"></i>
+                <h3 class="text-xl font-semibold text-gray-600">No Employees Found</h3>
+                <p class="text-gray-500 mt-2">Add your first employee to get started</p>
+                <button onclick="openAddModal()" class="mt-4 bg-green-600 hover:bg-green-700 text-white font-medium px-6 py-2 rounded-lg transition">
+                    Add Employee
+                </button>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Add/Edit Modal -->
+        <div id="employeeModal" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 hidden z-50">
+            <div class="bg-white p-6 rounded-xl w-full max-w-md mx-4">
+                <h2 class="text-2xl font-bold mb-4 text-gray-900" id="modalTitle">Add Employee</h2>
+                <form id="employeeForm">
+                    <input type="hidden" id="empId">
+                    <div class="space-y-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                            <input type="text" id="empName" placeholder="Enter full name" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                            <input type="email" id="empEmail" placeholder="Enter email address" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Department</label>
+                            <input type="text" id="empDept" placeholder="Enter department" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Role</label>
+                            <input type="text" id="empRole" placeholder="Enter role" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" required>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Contact</label>
+                            <input type="text" id="empContact" placeholder="Enter contact number" 
+                                   class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                    </div>
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button type="button" onclick="closeModal()" 
+                                class="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition">
+                            Cancel
+                        </button>
+                        <button type="submit" 
+                                class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">
+                            Save Employee
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <script>
+            function openAddModal() {
+                document.getElementById('modalTitle').innerText = "Add Employee";
+                document.getElementById('empId').value = "";
+                document.getElementById('empName').value = "";
+                document.getElementById('empEmail').value = "";
+                document.getElementById('empDept').value = "";
+                document.getElementById('empRole').value = "";
+                document.getElementById('empContact').value = "";
+                document.getElementById('employeeModal').classList.remove('hidden');
+            }
+
+            function closeModal() {
+                document.getElementById('employeeModal').classList.add('hidden');
+            }
+
+            function filterEmployees() {
+                const search = document.getElementById('searchInput').value.toLowerCase();
+                const dept = document.getElementById('deptFilter').value.toLowerCase();
+                const rows = document.querySelectorAll('.employee-row');
+
+                rows.forEach(row => {
+                    const name = row.querySelector('td:first-child').innerText.toLowerCase();
+                    const rowDept = row.getAttribute('data-dept');
+                    let show = true;
+
+                    if (search && !name.includes(search)) show = false;
+                    if (dept !== 'all' && rowDept !== dept) show = false;
+
+                    row.style.display = show ? '' : 'none';
+                });
+            }
+
+            function editEmployee(empId) {
+                fetch(`/get_employee/${empId}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        document.getElementById('modalTitle').innerText = "Edit Employee";
+                        document.getElementById('empId').value = empId;
+                        document.getElementById('empName').value = data.name || '';
+                        document.getElementById('empEmail').value = data.email || '';
+                        document.getElementById('empDept').value = data.department || '';
+                        document.getElementById('empRole').value = data.role || '';
+                        document.getElementById('empContact').value = data.contact || '';
+                        document.getElementById('employeeModal').classList.remove('hidden');
+                    });
+            }
+
+            function viewEmployeeVisitors(empId) {
+                window.open(`/employee/visitors/${empId}`, '_blank');
+            }
+
+            document.getElementById('employeeForm').addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const empId = document.getElementById('empId').value;
+                const payload = {
+                    name: document.getElementById('empName').value,
+                    email: document.getElementById('empEmail').value,
+                    department: document.getElementById('empDept').value,
+                    role: document.getElementById('empRole').value,
+                    contact: document.getElementById('empContact').value
+                };
+
+                const url = empId ? `/edit_employee/${empId}` : '/add_employee';
+                const method = 'POST';
+                const res = await fetch(url, {
+                    method,
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) { 
+                    location.reload(); 
+                } else { 
+                    alert("Error saving employee"); 
+                }
+            });
+
+            function deleteEmployee(empId) {
+                if(confirm("Are you sure you want to delete this employee?")) {
+                    fetch(`/delete_employee/${empId}`, { method: 'POST' })
+                        .then(res => res.ok ? location.reload() : alert("Error deleting employee"));
+                }
+            }
+
+            function exportToCSV() {
+                const headers = ['Name', 'Email', 'Department', 'Role', 'Contact', 'Visitor Count'];
+                const rows = {{ employees|tojson }};
+                const analytics = {{ employee_analytics|tojson }};
+                
+                let csvContent = headers.join(',') + '\\n';
+                
+                Object.entries(rows).forEach(([empId, emp]) => {
+                    const visitorCount = analytics[empId] ? analytics[empId].visitor_count : 0;
+                    const row = [
+                        `"${emp.name}"`,
+                        `"${emp.email}"`,
+                        `"${emp.department}"`,
+                        `"${emp.role}"`,
+                        `"${emp.contact}"`,
+                        visitorCount
+                    ];
+                    csvContent += row.join(',') + '\\n';
+                });
+                
+                const blob = new Blob([csvContent], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.setAttribute('hidden', '');
+                a.setAttribute('href', url);
+                a.setAttribute('download', `employees_report_${new Date().toISOString().split('T')[0]}.csv`);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    return render_template_string(EMP_HTML, 
+                                employees=all_employees,
+                                employee_analytics=employee_analytics,
+                                total_visitors=total_visitors,
+                                avg_visitors_per_employee=avg_visitors_per_employee,
+                                top_employee_name=top_employee_name,
+                                top_employee_count=top_employee_count,
+                                departments=departments)
+@app.route('/get_employee/<emp_id>')
+def get_employee(emp_id):
+    emp_data = db.reference(f'employees/{emp_id}').get()
+    if not emp_data:
+        return jsonify({"error": "Employee not found"}), 404
+    return jsonify(emp_data)
+
+@app.route('/add_employee', methods=['POST'])
+def add_employee():
+    data = request.get_json()
+    emp_id = str(uuid.uuid4())
+    db.reference(f'employees/{emp_id}').set(data)
+    return jsonify({"success": True, "emp_id": emp_id})
+
+@app.route('/edit_employee/<emp_id>', methods=['POST'])
+def edit_employee(emp_id):
+    data = request.get_json()
+    db.reference(f'employees/{emp_id}').update(data)
+    return jsonify({"success": True})
+
+@app.route('/delete_employee/<emp_id>', methods=['POST'])
+def delete_employee(emp_id):
+    db.reference(f'employees/{emp_id}').delete()
+    return jsonify({"success": True})
+
+if __name__ == "__main__":
+    app.run(debug=True)

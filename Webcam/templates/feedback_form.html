@@ -1,0 +1,511 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Voice Feedback</title>
+  <style>
+    body {
+      text-align: center;
+      font-family: Arial, sans-serif;
+    }
+    #transcript {
+      margin-top: 20px;
+      border: 1px solid #ccc;
+      padding: 10px;
+      width: 60%;
+      margin-left: auto;
+      margin-right: auto;
+      min-height: 100px;
+      white-space: pre-wrap;
+    }
+    button {
+      margin: 5px;
+      padding: 10px 20px;
+      font-size: 16px;
+    }
+  </style>
+</head>
+<body>
+  <h2>🎤 Voice Feedback</h2>
+
+  {% if visitor_id %}
+    <p><strong>Visitor ID:</strong> {{ visitor_id }}</p>
+  {% endif %}
+
+  <div>
+    <button id="startBtn">Start Recording</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="retakeBtn" disabled>Retake</button>
+  </div>
+
+  <div id="transcript" placeholder="Your speech will appear here..."></div>
+
+  <form method="POST" action="/submit_feedback" id="feedbackForm">
+    {% if visitor_id %}
+      <input type="hidden" name="visitor_id" value="{{ visitor_id }}">
+    {% endif %}
+    <input type="hidden" name="feedback_text" id="feedbackText">
+    <button type="submit">Submit Feedback</button>
+  </form>
+
+  <script>
+    let recognition;
+    let isRecording = false;
+    let finalTranscript = "";
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = false; // only final results to prevent repetition
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        isRecording = true;
+        console.log("Recording started...");
+      };
+
+      recognition.onresult = (event) => {
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            let transcript = event.results[i][0].transcript.trim();
+            if (!finalTranscript.includes(transcript)) { // avoid duplicates
+              finalTranscript += transcript + " ";
+            }
+          }
+        }
+        document.getElementById('transcript').innerText = finalTranscript;
+      };
+
+      recognition.onerror = (event) => {
+        console.error("Speech recognition error:", event.error);
+      };
+
+      recognition.onend = () => {
+        isRecording = false;
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+        document.getElementById('retakeBtn').disabled = false;
+        console.log("Recording stopped.");
+      };
+    } else {
+      alert("Speech Recognition API not supported in this browser.");
+    }
+
+    document.getElementById('startBtn').onclick = () => {
+      if (!isRecording) {
+        finalTranscript = "";
+        document.getElementById('transcript').innerText = "";
+        recognition.start();
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        document.getElementById('retakeBtn').disabled = true;
+      }
+    };
+
+    document.getElementById('stopBtn').onclick = () => {
+      if (isRecording) recognition.stop();
+    };
+
+    document.getElementById('retakeBtn').onclick = () => {
+      finalTranscript = "";
+      document.getElementById('transcript').innerText = "";
+      document.getElementById('startBtn').disabled = false;
+      document.getElementById('stopBtn').disabled = true;
+      document.getElementById('retakeBtn').disabled = true;
+    };
+
+    document.getElementById('feedbackForm').onsubmit = () => {
+      document.getElementById('feedbackText').value = finalTranscript.trim();
+      if (!finalTranscript.trim()) {
+        alert("Please record your feedback before submitting!");
+        return false;
+      }
+      return true;
+    };
+  </script>
+</body>
+</html> -->
+
+<!-- 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Feedback</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl bg-white shadow-2xl rounded-xl p-6 md:p-10 text-center">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">
+            🎤 Voice Feedback
+        </h1>
+        <p class="text-gray-500 mb-6">Tap the button and speak your thoughts clearly.</p>
+
+        {% if visitor_id %}
+            <p class="text-md text-gray-700 font-semibold mb-6 p-2 bg-indigo-50 rounded-lg inline-block">
+                Visitor ID: <span class="font-mono text-indigo-600">{{ visitor_id }}</span>
+            </p>
+        {% endif %}
+
+        <div class="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+            <button id="startBtn" 
+                    class="flex-1 px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Start Recording
+            </button>
+            <button id="stopBtn" disabled
+                    class="flex-1 px-6 py-3 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Stop
+            </button>
+            <button id="retakeBtn" disabled
+                    class="flex-1 px-6 py-3 bg-yellow-500 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Retake
+            </button>
+        </div>
+
+        <div id="transcript" 
+             class="w-full mx-auto p-5 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 text-left text-gray-700 min-h-[120px] mb-8 shadow-inner overflow-y-auto" 
+             placeholder="Your speech will appear here...">
+            <span class="text-gray-400">Recording is stopped. Click "Start Recording" to begin.</span>
+        </div>
+
+      
+        <form method="POST" action="/submit_feedback" id="feedbackForm">
+            {% if visitor_id %}
+                <input type="hidden" name="visitor_id" value="{{ visitor_id }}">
+            {% endif %}
+            <input type="hidden" name="feedback_text" id="feedbackText">
+            <button type="submit"
+                    class="w-full sm:w-auto px-10 py-3 bg-indigo-600 text-white font-bold text-lg rounded-lg shadow-xl hover:bg-indigo-700 transition duration-300 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed">
+                Submit Feedback
+            </button>
+        </form>
+    </div>
+
+
+    <div id="custom-modal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-xs text-center">
+            <h3 class="text-xl font-bold mb-4 text-red-600">Attention</h3>
+            <p id="modal-message" class="text-gray-700 mb-6"></p>
+            <button onclick="document.getElementById('custom-modal').classList.add('hidden')"
+                    class="w-full py-2 bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600">
+                Got It
+            </button>
+        </div>
+    </div>
+
+
+    <script>
+        // Modal functions (replacing native alert)
+        function showAlert(message) {
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('custom-modal').classList.remove('hidden');
+        }
+
+        let recognition;
+        let isRecording = false;
+        let finalTranscript = "";
+
+        const transcriptDiv = document.getElementById('transcript');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const feedbackText = document.getElementById('feedbackText');
+        const placeholderText = "Recording is stopped. Click \"Start Recording\" to begin.";
+
+        transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true; // Use interim results for real-time typing effect
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isRecording = true;
+                transcriptDiv.innerText = "Listening...";
+                transcriptDiv.classList.remove('bg-gray-50', 'border-gray-300');
+                transcriptDiv.classList.add('bg-indigo-50', 'border-indigo-500', 'animate-pulse');
+                console.log("Recording started...");
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    let transcript = event.results[i][0].transcript;
+                    if (event.results[i].isFinal) {
+                        finalTranscript += transcript + " ";
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+                // Display final transcript + interim results
+                transcriptDiv.innerText = (finalTranscript + interimTranscript).trim();
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error:", event.error);
+                if (isRecording) recognition.stop(); // Stop if there's an error while listening
+                showAlert(`Recording error: ${event.error}. Please try again.`);
+            };
+
+            recognition.onend = () => {
+                isRecording = false;
+                transcriptDiv.classList.remove('bg-indigo-50', 'border-indigo-500', 'animate-pulse');
+                transcriptDiv.classList.add('bg-gray-50', 'border-gray-300');
+
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                
+                // Only enable retake/submit if content exists
+                if (finalTranscript.trim().length > 0) {
+                    retakeBtn.disabled = false;
+                } else {
+                    transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+                }
+                
+                console.log("Recording stopped.");
+            };
+        } else {
+            showAlert("Speech Recognition API is not supported in this browser. Please use Chrome or Edge.");
+            startBtn.disabled = true;
+        }
+
+        startBtn.onclick = () => {
+            if (!isRecording) {
+                // Reset everything before starting
+                finalTranscript = "";
+                transcriptDiv.innerText = "";
+                
+                recognition.start();
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                retakeBtn.disabled = true;
+            }
+        };
+
+        stopBtn.onclick = () => {
+            if (isRecording) recognition.stop();
+        };
+
+        retakeBtn.onclick = () => {
+            if (isRecording) recognition.stop(); // Ensure it's stopped first
+            finalTranscript = "";
+            transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            retakeBtn.disabled = true;
+        };
+
+        document.getElementById('feedbackForm').onsubmit = () => {
+            feedbackText.value = finalTranscript.trim();
+            if (!feedbackText.value) {
+                showAlert("Please record your feedback before submitting!");
+                return false;
+            }
+            return true;
+        };
+    </script>
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Feedback</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f9;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-2xl bg-white shadow-2xl rounded-xl p-6 md:p-10 text-center">
+        <h1 class="text-3xl font-extrabold text-indigo-700 mb-2">
+            🎤 Voice Feedback
+        </h1>
+        <p class="text-gray-500 mb-6">Tap the button and speak your thoughts clearly.</p>
+
+        {% if visitor_id %}
+            <p class="text-md text-gray-700 font-semibold mb-6 p-2 bg-indigo-50 rounded-lg inline-block">
+                Visitor ID: <span class="font-mono text-indigo-600">{{ visitor_id }}</span>
+            </p>
+        {% endif %}
+
+        <!-- Control Buttons -->
+        <div class="flex flex-col sm:flex-row justify-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8">
+            <button id="startBtn" 
+                    class="flex-1 px-6 py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Start Recording
+            </button>
+            <button id="stopBtn" disabled
+                    class="flex-1 px-6 py-3 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Stop
+            </button>
+            <button id="retakeBtn" disabled
+                    class="flex-1 px-6 py-3 bg-yellow-500 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-600 transition duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed">
+                Retake
+            </button>
+        </div>
+
+        <!-- Transcript Display Area -->
+        <div id="transcript" 
+             class="w-full mx-auto p-5 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50 text-left text-gray-700 min-h-[120px] mb-8 shadow-inner overflow-y-auto" 
+             placeholder="Your speech will appear here...">
+            <span class="text-gray-400">Recording is stopped. Click "Start Recording" to begin.</span>
+        </div>
+
+        <!-- Submission Form -->
+        <form method="POST" action="/submit_feedback" id="feedbackForm">
+            {% if visitor_id %}
+                <input type="hidden" name="visitor_id" value="{{ visitor_id }}">
+            {% endif %}
+            <input type="hidden" name="feedback_text" id="feedbackText">
+            <button type="submit"
+                    class="w-full sm:w-auto px-10 py-3 bg-indigo-600 text-white font-bold text-lg rounded-lg shadow-xl hover:bg-indigo-700 transition duration-300 transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed">
+                Submit Feedback
+            </button>
+        </form>
+    </div>
+
+    <!-- Custom Modal for Alerts -->
+    <div id="custom-modal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center p-4">
+        <div class="bg-white rounded-xl shadow-2xl p-6 w-full max-w-xs text-center">
+            <h3 class="text-xl font-bold mb-4 text-red-600">Attention</h3>
+            <p id="modal-message" class="text-gray-700 mb-6"></p>
+            <button onclick="document.getElementById('custom-modal').classList.add('hidden')"
+                    class="w-full py-2 bg-indigo-500 text-white rounded-lg font-semibold hover:bg-indigo-600">
+                Got It
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // 🧠 Function to remove repeated consecutive words
+        function removeDuplicateWords(text) {
+            return text.replace(/\b(\w+)( \1\b)+/gi, '$1');
+        }
+
+        function showAlert(message) {
+            document.getElementById('modal-message').textContent = message;
+            document.getElementById('custom-modal').classList.remove('hidden');
+        }
+
+        let recognition;
+        let isRecording = false;
+        let finalTranscript = "";
+
+        const transcriptDiv = document.getElementById('transcript');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const retakeBtn = document.getElementById('retakeBtn');
+        const feedbackText = document.getElementById('feedbackText');
+        const placeholderText = "Recording is stopped. Click \"Start Recording\" to begin.";
+
+        transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+            recognition.lang = 'en-US';
+
+            recognition.onstart = () => {
+                isRecording = true;
+                transcriptDiv.innerText = "Listening...";
+                transcriptDiv.classList.remove('bg-gray-50', 'border-gray-300');
+                transcriptDiv.classList.add('bg-indigo-50', 'border-indigo-500', 'animate-pulse');
+                console.log("🎙️ Recording started...");
+            };
+
+            recognition.onresult = (event) => {
+                let interimTranscript = '';
+                for (let i = event.resultIndex; i < event.results.length; i++) {
+                    let transcript = event.results[i][0].transcript;
+                    transcript = removeDuplicateWords(transcript.trim()); // 🔹 Remove repeating words
+                    if (event.results[i].isFinal) {
+                        finalTranscript += " " + transcript;
+                        finalTranscript = removeDuplicateWords(finalTranscript);
+                    } else {
+                        interimTranscript += transcript;
+                    }
+                }
+
+                let combined = (finalTranscript + " " + interimTranscript).trim();
+                transcriptDiv.innerText = removeDuplicateWords(combined);
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error:", event.error);
+                if (isRecording) recognition.stop();
+                showAlert(`Recording error: ${event.error}. Please try again.`);
+            };
+
+            recognition.onend = () => {
+                isRecording = false;
+                transcriptDiv.classList.remove('bg-indigo-50', 'border-indigo-500', 'animate-pulse');
+                transcriptDiv.classList.add('bg-gray-50', 'border-gray-300');
+                startBtn.disabled = false;
+                stopBtn.disabled = true;
+                if (finalTranscript.trim().length > 0) retakeBtn.disabled = false;
+                else transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+                console.log("🛑 Recording stopped.");
+            };
+        } else {
+            showAlert("Speech Recognition API is not supported in this browser. Please use Chrome or Edge.");
+            startBtn.disabled = true;
+        }
+
+        startBtn.onclick = () => {
+            if (!isRecording) {
+                finalTranscript = "";
+                transcriptDiv.innerText = "";
+                recognition.start();
+                startBtn.disabled = true;
+                stopBtn.disabled = false;
+                retakeBtn.disabled = true;
+            }
+        };
+
+        stopBtn.onclick = () => {
+            if (isRecording) recognition.stop();
+        };
+
+        retakeBtn.onclick = () => {
+            if (isRecording) recognition.stop();
+            finalTranscript = "";
+            transcriptDiv.innerHTML = `<span class="text-gray-400">${placeholderText}</span>`;
+            startBtn.disabled = false;
+            stopBtn.disabled = true;
+            retakeBtn.disabled = true;
+        };
+
+        document.getElementById('feedbackForm').onsubmit = () => {
+            feedbackText.value = removeDuplicateWords(finalTranscript.trim());
+            if (!feedbackText.value) {
+                showAlert("Please record your feedback before submitting!");
+                return false;
+            }
+            return true;
+        };
+    </script>
+</body>
+</html>

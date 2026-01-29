@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Visitor Dashboard</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .visitor {
+      border: 1px solid #ccc;
+      padding: 15px;
+      margin-bottom: 15px;
+      border-radius: 8px;
+      background: #f9f9f9;
+    }
+    img {
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Registered Visitors</h1>
+  <div id="visitor-container"></div>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database.js"></script>
+
+  <script>
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyBeQygfqm5iYgIgXp-2wI5or648QA1do0I",
+      authDomain: "v-guard-af8af.firebaseapp.com",
+      databaseURL: "https://v-guard-af8af-default-rtdb.firebaseio.com",
+      projectId: "v-guard-af8af",
+      storageBucket: "v-guard-af8af.appspot.com",
+      messagingSenderId: "912634393462",
+      appId: "1:912634393462:web:2f51b360374cb733d54057",
+      measurementId: "G-9639Z1QL5D"
+    };
+
+    // Initialize Firebase
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const container = document.getElementById('visitor-container');
+
+    // Fetch data and update the UI
+    db.ref("visitors").on("value", snapshot => {
+      const data = snapshot.val();
+      container.innerHTML = ""; // clear existing content
+      if (data) {
+        Object.keys(data).forEach(key => {
+          const visitor = data[key];
+          const div = document.createElement("div");
+          div.className = "visitor";
+          div.innerHTML = `
+            <h3>${visitor.name}</h3>
+            <p><strong>Email:</strong> ${visitor.email}</p>
+            <p><strong>Purpose:</strong> ${visitor.purpose}</p>
+            <p><strong>Duration:</strong> ${visitor.duration}</p>
+            <p><strong>Age:</strong> ${visitor.age || "Unknown"}</p>
+            <img src="${visitor.photo}" alt="Visitor Photo" width="200" />
+          `;
+          container.appendChild(div);
+        });
+      } else {
+        container.innerHTML = "<p>No visitors found.</p>";
+      }
+    });
+  </script>
+</body>
+</html>

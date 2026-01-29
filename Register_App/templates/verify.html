@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Identity</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f9fb;
+        }
+        .container-card {
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 0 10px rgba(0, 0, 0, 0.04);
+        }
+        #webcamVideo {
+            transform: scaleX(-1); /* Flip video horizontally for mirror effect */
+            width: 100%;
+            height: auto;
+            border-radius: 0.5rem;
+        }
+        /* Custom modal styles for displaying messages */
+        .modal {
+            transition: opacity 0.3s ease, visibility 0.3s ease;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <!-- Verification Card -->
+    <div class="container-card w-full max-w-lg bg-white rounded-xl p-8 space-y-6">
+        <h1 class="text-3xl font-bold text-center text-gray-800">Identity Verification</h1>
+        <p class="text-center text-gray-500">Look directly into the camera and click 'Verify' to check-in.</p>
+
+        <!-- Webcam Stream -->
+        <div class="relative overflow-hidden rounded-xl bg-gray-200 aspect-video">
+            <video id="webcamVideo" autoplay playsinline></video>
+            <canvas id="photoCanvas" style="display:none;"></canvas>
+            <div id="loadingIndicator" class="absolute inset-0 bg-gray-800 bg-opacity-70 flex items-center justify-center text-white text-lg font-semibold hidden">
+                Processing...
+            </div>
+        </div>
+        
+        <!-- Verification Button -->
+        <button id="verifyButton"
+                class="w-full py-3 px-4 rounded-lg bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition duration-150 ease-in-out focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-opacity-50 disabled:bg-gray-400">
+            Verify Identity
+        </button>
+
+        <!-- Message Box -->
+        <div id="messageBox" class="p-3 rounded-lg text-sm text-center font-medium hidden"></div>
+
+        <!-- Manual Registration Link for failed verification -->
+        <a id="registerLink" href="/register" class="block text-center text-indigo-600 hover:text-indigo-800 transition duration-150 hidden">New visitor? Click here to Register.</a>
+        
+        <a href="/" class="block text-center text-gray-500 hover:text-gray-700 transition duration-150 text-sm">Go to Home</a>
+    </div>
+
+    <script>
+        const video = document.getElementById('webcamVideo');
+        const canvas = document.getElementById('photoCanvas');
+        const verifyButton = document.getElementById('verifyButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        const messageBox = document.getElementById('messageBox');
+        const registerLink = document.getElementById('registerLink');
+        let stream = null;
+
+        /**
+         * Displays a message in the designated box.
+         * @param {string} message The message content.
+         * @param {string} type The message type ('success', 'error', 'info').
+         */
+        function displayMessage(message, type = 'info') {
+            let bgColor = 'bg-blue-100';
+            let textColor = 'text-blue-700';
+            
+            if (type === 'success') {
+                bgColor = 'bg-green-100';
+                textColor = 'text-green-700';
+                registerLink.classList.add('hidden');
+            } else if (type === 'error') {
+                bgColor = 'bg-red-100';
+                textColor = 'text-red-700';
+                // Show manual link to registration if verification fails
+                registerLink.classList.remove('hidden');
+            } else {
+                registerLink.classList.add('hidden');
+            }
+
+            messageBox.textContent = message;
+            messageBox.className = `p-3 rounded-lg text-sm text-center font-medium ${bgColor} ${textColor}`;
+            messageBox.style.display = 'block';
+        }
+
+        /**
+         * Starts the webcam stream.
+         */
+        async function startWebcam() {
+            try {
+                displayMessage("Starting webcam...", 'info');
+                stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    video.play();
+                    displayMessage("Webcam live. Ready to verify.", 'success');
+                    verifyButton.disabled = false;
+                };
+            } catch (err) {
+                console.error("Client-side Error: Could not access webcam. Ensure permission is granted.", err);
+                displayMessage("❌ Error accessing webcam. Please allow camera access and try again.", 'error');
+                verifyButton.disabled = true;
+            }
+        }
+
+        /**
+         * Stops the webcam stream.
+         */
+        function stopWebcam() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+            }
+        }
+
+        /**
+         * Captures frame, sends to Flask, and handles response.
+         */
+        async function captureAndVerify() {
+            if (!stream) {
+                displayMessage("❌ Webcam not active.", 'error');
+                return;
+            }
+
+            // 1. Setup Canvas and Capture Frame
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const context = canvas.getContext('2d');
+            
+            // Draw the image, flipped back, from the video stream
+            context.translate(canvas.width, 0);
+            context.scale(-1, 1); 
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Get base64 data (JPEG compression is efficient)
+            const photo_base64 = canvas.toDataURL('image/jpeg', 0.9);
+
+            // 2. Prepare UI for processing
+            verifyButton.disabled = true;
+            verifyButton.textContent = 'Verifying...';
+            loadingIndicator.classList.remove('hidden');
+            displayMessage("Sending image for verification...", 'info');
+
+            // 3. Send data to Flask via fetch
+            try {
+                console.log(`Client: Sending image data to /verify-face. Base64 length: ${photo_base64.length}`);
+                const response = await fetch('/verify-face', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ image: photo_base64 })
+                });
+
+                const result = await response.json();
+                console.log("Client: Received response from server:", result);
+                
+                // 4. Handle Server Response
+                if (result.match) {
+                    displayMessage(result.message, 'success');
+                    stopWebcam();
+                    // Redirect immediately on successful match
+                    setTimeout(() => {
+                        window.location.href = result.redirect; 
+                    }, 1500); 
+                } else {
+                    // Display error message but DO NOT redirect
+                    displayMessage(result.message, 'error');
+                    // The user stays on the page to try again or click the manual registration link
+                }
+
+            } catch (error) {
+                console.error('Client-side Network Error:', error);
+                displayMessage('❌ Network Error: Could not connect to the verification server.', 'error');
+            } finally {
+                verifyButton.disabled = false;
+                verifyButton.textContent = 'Verify Identity';
+                loadingIndicator.classList.add('hidden');
+            }
+        }
+
+        // --- Event Listeners and Initialization ---
+        window.addEventListener('load', startWebcam);
+        verifyButton.addEventListener('click', captureAndVerify);
+        window.addEventListener('beforeunload', stopWebcam); // Stop stream when leaving page
+    </script>
+</body>
+</html>

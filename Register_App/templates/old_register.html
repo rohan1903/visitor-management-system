@@ -1,0 +1,481 @@
+<!-- 
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Old Visitor Check-in</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin-top: 50px;
+        }
+        form {
+            display: inline-block;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 10px;
+        }
+        input, select, button {
+            margin-top: 10px;
+            padding: 8px;
+            font-size: 16px;
+            width: 90%;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            margin-top: 20px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+
+    <h2>Welcome Back!</h2>
+
+    <form id="oldForm" method="POST" action="/old_register">
+        <label>Purpose of Visit:</label><br>
+        <input type="text" name="purpose" required><br><br>
+
+        <label>Duration of Visit:</label><br>
+        <select name="duration" required>
+            <option value="1hr">1 hr</option>
+            <option value="2hr">2 hr</option>
+            <option value="3hr">3 hr</option>
+            <option value="Not sure">Not sure</option>
+        </select><br><br>
+
+        <button type="submit">Check In</button>
+    </form>
+
+    <script>
+        document.getElementById("oldForm").addEventListener("submit", async function (e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            const data = new URLSearchParams();
+            for (const pair of formData.entries()) {
+                data.append(pair[0], pair[1]);
+            }
+
+            try {
+                const res = await fetch("/old_register", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: data
+                });
+
+                if (res.redirected) {
+                    window.location.href = res.url;
+                } else {
+                    const text = await res.text();
+                    alert(text);
+                }
+            } catch (err) {
+                alert("❌ Error during check-in. Please try again.");
+                console.error(err);
+            }
+        });
+    </script>
+
+</body>
+</html> -->
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Returning Visitor Check-In</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #4361ee;
+            --primary-dark: #3a0ca3;
+            --primary-light: #4895ef;
+            --secondary: #f72585;
+            --accent: #4cc9f0;
+            --light: #f8f9fa;
+            --dark: #212529;
+            --gray: #6c757d;
+            --light-gray: #e9ecef;
+            --success: #38b000;
+            --error: #ef233c;
+            --border-radius: 16px;
+            --border-radius-sm: 12px;
+            --box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7ff 0%, #f0f4ff 100%);
+            color: var(--dark);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            line-height: 1.6;
+        }
+
+        .checkin-container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            overflow: hidden;
+            animation: fadeIn 0.5s ease-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .checkin-header {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            padding: 25px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .checkin-header::before {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0) 70%);
+            transform: rotate(30deg);
+        }
+
+        .checkin-header h2 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            position: relative;
+        }
+
+        .checkin-header p {
+            opacity: 0.9;
+            font-size: 16px;
+            font-weight: 400;
+        }
+
+        .checkin-form {
+            padding: 30px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+            position: relative;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 600;
+            color: var(--dark);
+            font-size: 15px;
+            text-align: left;
+        }
+
+        .input-wrapper {
+            position: relative;
+        }
+
+        .form-control {
+            width: 100%;
+            padding: 16px 20px;
+            border: 2px solid var(--light-gray);
+            border-radius: var(--border-radius-sm);
+            font-size: 16px;
+            transition: var(--transition);
+            background-color: white;
+            color: var(--dark);
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 3px rgba(72, 149, 239, 0.2);
+        }
+
+        select.form-control {
+            appearance: none;
+            background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+            background-repeat: no-repeat;
+            background-position: right 15px center;
+            background-size: 16px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 18px;
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            border: none;
+            border-radius: var(--border-radius-sm);
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(67, 97, 238, 0.3);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(67, 97, 238, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn::after {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: rgba(255, 255, 255, 0.1);
+            transform: rotate(30deg);
+            transition: var(--transition);
+            opacity: 0;
+        }
+
+        .btn:hover::after {
+            opacity: 1;
+            transform: rotate(30deg) translate(10%, 10%);
+        }
+
+        .btn i {
+            margin-right: 12px;
+            font-size: 20px;
+        }
+
+        .spinner {
+            display: none;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 12px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .status-message {
+            padding: 15px;
+            margin-top: 20px;
+            border-radius: var(--border-radius-sm);
+            font-weight: 500;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+        }
+
+        .status-success {
+            background: rgba(56, 176, 0, 0.1);
+            border: 1px solid var(--success);
+            color: var(--success);
+        }
+
+        .status-error {
+            background: rgba(239, 35, 60, 0.1);
+            border: 1px solid var(--error);
+            color: var(--error);
+        }
+
+        .status-message i {
+            margin-right: 10px;
+            font-size: 18px;
+        }
+
+        @media (max-width: 480px) {
+            .checkin-header h2 {
+                font-size: 24px;
+            }
+            
+            .checkin-header p {
+                font-size: 15px;
+            }
+            
+            .checkin-form {
+                padding: 25px 20px;
+            }
+            
+            .btn {
+                padding: 16px;
+                font-size: 16px;
+            }
+        }
+    </style>
+</head><body>
+    <div class="checkin-container">
+        <div class="checkin-header">
+            <h2><i class="fas fa-user-clock"></i> Welcome Back!</h2>
+            <p>Please update your visit details below</p>
+        </div>
+
+        <form id="oldForm" class="checkin-form" method="POST">
+            
+            <!-- Purpose of Visit -->
+            <div class="form-group">
+                <label>Purpose of Visit</label>
+                <div class="input-wrapper">
+                    <label><input type="radio" name="purpose_type" value="employee" required> To meet an employee</label>
+                    <label><input type="radio" name="purpose_type" value="other" required> Other</label>
+                </div>
+            </div>
+
+            <!-- Employee Dropdown -->
+            <div class="form-group" id="employeeSelectGroup" style="display: none;">
+                <label for="employee_name">Select Employee</label>
+                <select id="employee_name" name="employee_name" class="form-control">
+                    <option value="" disabled selected>Select an employee</option>
+                    {% for emp_id, emp in employees.items() %}
+                        <option value="{{ emp.name }}">{{ emp.name }} ({{ emp.department }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- Other Purpose Textbox -->
+            <div class="form-group" id="otherPurposeGroup" style="display: none;">
+                <label for="other_purpose">Specify Purpose</label>
+                <input type="text" id="other_purpose" name="other_purpose" class="form-control" placeholder="Enter your purpose">
+            </div>
+
+            <!-- Visit Date -->
+            <div class="form-group">
+                <label for="visit_date">Select Visit Date:</label>
+                <input type="date" id="visit_date" name="visit_date" class="form-control" required>
+            </div>
+
+            <!-- Duration -->
+            <div class="form-group">
+                <label for="duration">Duration of Visit</label>
+                <select id="duration" name="duration" class="form-control" required>
+                    <option value="" disabled selected>Select duration</option>
+                    <option value="1hr">1 hour</option>
+                    <option value="2hr">2 hours</option>
+                    <option value="3hr">3 hours</option>
+                    <option value="Not sure">Not sure</option>
+                </select>
+            </div>
+
+            <button type="submit" class="btn" id="submitBtn">
+                <i class="fas fa-check-circle"></i> Register
+                <div class="spinner" id="spinner"></div>
+            </button>
+
+            <div id="status-message" class="status-message">
+                <i class="fas fa-check-circle"></i>
+                <span id="message-text"></span>
+            </div>
+        </form>
+    </div>
+
+    <script>
+        // --- Prevent past date selection ---
+        const dateInput = document.getElementById('visit_date');
+        const today = new Date().toISOString().split('T')[0];
+        dateInput.min = today;
+
+        // --- Show/hide employee or other purpose field ---
+        const purposeRadios = document.getElementsByName('purpose_type');
+        const empGroup = document.getElementById('employeeSelectGroup');
+        const otherGroup = document.getElementById('otherPurposeGroup');
+
+        purposeRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                if (radio.value === 'employee' && radio.checked) {
+                    empGroup.style.display = 'block';
+                    otherGroup.style.display = 'none';
+                } else if (radio.value === 'other' && radio.checked) {
+                    empGroup.style.display = 'none';
+                    otherGroup.style.display = 'block';
+                }
+            });
+        });
+
+        // --- Submit form with spinner and messages ---
+        document.getElementById("oldForm").addEventListener("submit", async function(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById("submitBtn");
+            const spinner = document.getElementById("spinner");
+            const statusMessage = document.getElementById("status-message");
+            const messageText = document.getElementById("message-text");
+            
+            submitBtn.disabled = true;
+            spinner.style.display = 'block';
+            statusMessage.style.display = 'none';
+            
+            const formData = new FormData(this);
+            const data = new URLSearchParams();
+            for (const pair of formData.entries()) {
+                data.append(pair[0], pair[1]);
+            }
+
+            try {
+                const res = await fetch("/old_register", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded"
+                    },
+                    body: data
+                });
+
+                if (res.redirected) {
+                    window.location.href = res.url;
+                } else {
+                    const text = await res.text();
+                    messageText.textContent = text;
+                    statusMessage.className = 'status-message status-success';
+                    statusMessage.style.display = 'flex';
+                    statusMessage.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+            } catch (err) {
+                messageText.textContent = "Error during check-in. Please try again.";
+                statusMessage.className = 'status-message status-error';
+                statusMessage.style.display = 'flex';
+                console.error(err);
+            } finally {
+                submitBtn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        });
+    </script>
+</body>
+
+</html>

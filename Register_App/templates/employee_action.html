@@ -1,0 +1,924 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Action</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .photo-section {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+        }
+        .photo-section img {
+            max-width: 200px;
+            max-height: 200px;
+            border-radius: 8px;
+        }
+        .no-photo {
+            color: #888;
+            font-style: italic;
+            padding: 40px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        .detail-group {
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .detail-group label {
+            font-weight: bold;
+            color: #333;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .detail-group span {
+            color: #555;
+            font-size: 16px;
+        }
+        .status-rejected {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .status-approved {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .status-pending {
+            color: #ffc107;
+            font-weight: bold;
+        }
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+        }
+        .action-buttons button {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-approve {
+            background-color: #28a745;
+            color: white;
+        }
+        .btn-approve:hover {
+            background-color: #218838;
+        }
+        .btn-reject {
+            background-color: #dc3545;
+            color: white;
+        }
+        .btn-reject:hover {
+            background-color: #c82333;
+        }
+        .btn-reschedule {
+            background-color: #007bff;
+            color: white;
+        }
+        .btn-reschedule:hover {
+            background-color: #0056b3;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+        .modal-content {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            width: 400px;
+            max-width: 90%;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #eee;
+        }
+        .modal-title {
+            font-size: 18px;
+            font-weight: bold;
+        }
+        .close {
+            font-size: 24px;
+            cursor: pointer;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        .form-group input,
+        .form-group textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        .modal-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        .modal-buttons button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-cancel {
+            background-color: #6c757d;
+            color: white;
+        }
+        .btn-submit {
+            background-color: #007bff;
+            color: white;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 10px;
+            color: #007bff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>Visitor Details</h2>
+        
+    
+        <div class="photo-section">
+            {% if photo_url %}
+                <img src="{{ photo_url }}" alt="Visitor Photo" 
+                     onerror="this.style.display='none'; document.getElementById('no-photo-fallback').style.display='block';"
+                     style="max-width: 200px; max-height: 200px; border-radius: 8px;">
+                <div id="no-photo-fallback" class="no-photo" style="display: none;">No Photo Available</div>
+            {% else %}
+                <div class="no-photo">No Photo Available</div>
+            {% endif %}
+        </div>
+
+        <div class="visitor-details">
+            <div class="detail-group">
+                <label>Visitor ID:</label>
+                <span>{{ visitor_id }}</span>
+            </div>
+            
+            <div class="detail-group">
+                <label>Visit ID:</label>
+                <span>{{ latest_visit_id }}</span>
+            </div>
+            
+            <div class="detail-group">
+                <label>Purpose:</label>
+                <span>{{ purpose }}</span>
+            </div>
+            
+            <div class="detail-group">
+                <label>Status:</label>
+                <span class="status-{{ status.lower() }}">{{ status }}</span>
+            </div>
+            
+            <div class="detail-group">
+                <label>Visit Date:</label>
+                <span>{{ visit_date }}</span>
+            </div>
+        </div>
+
+        <div id="loading" class="loading">
+            Processing your request...
+        </div>
+
+        <div class="action-buttons">
+            <button onclick="approveVisit('{{ visitor_id }}', '{{ latest_visit_id }}')" class="btn-approve">Approve</button>
+            <button onclick="showRejectModal('{{ visitor_id }}', '{{ latest_visit_id }}')" class="btn-reject">Reject</button>
+            <button onclick="showRescheduleModal('{{ visitor_id }}', '{{ latest_visit_id }}')" class="btn-reschedule">Reschedule</button>
+        </div>
+    </div>
+
+
+    <div id="rejectModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Reject Visit</div>
+                <span class="close" onclick="closeRejectModal()">&times;</span>
+            </div>
+            <div class="form-group">
+                <label for="rejectionReason">Reason for Rejection:</label>
+                <textarea id="rejectionReason" rows="4" placeholder="Please provide a reason for rejection"></textarea>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeRejectModal()">Cancel</button>
+                <button class="btn-submit" onclick="rejectVisit()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="rescheduleModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Reschedule Visit</div>
+                <span class="close" onclick="closeRescheduleModal()">&times;</span>
+            </div>
+            <div class="form-group">
+                <label for="newVisitDate">New Visit Date:</label>
+                <input type="date" id="newVisitDate">
+            </div>
+            <div class="form-group">
+                <label for="rescheduleReason">Reason for Rescheduling:</label>
+                <textarea id="rescheduleReason" rows="4" placeholder="Please provide a reason for rescheduling"></textarea>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn-cancel" onclick="closeRescheduleModal()">Cancel</button>
+                <button class="btn-submit" onclick="rescheduleVisit()">Submit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store current visitor and visit IDs for modal actions
+        let currentVisitorId = '';
+        let currentVisitId = '';
+
+        // Function to show reject modal
+        function showRejectModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            document.getElementById('rejectModal').style.display = 'block';
+        }
+
+        // Function to close reject modal
+        function closeRejectModal() {
+            document.getElementById('rejectModal').style.display = 'none';
+            document.getElementById('rejectionReason').value = '';
+        }
+
+        // Function to show reschedule modal
+        function showRescheduleModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('newVisitDate').min = today;
+            
+            document.getElementById('rescheduleModal').style.display = 'block';
+        }
+
+        // Function to close reschedule modal
+        function closeRescheduleModal() {
+            document.getElementById('rescheduleModal').style.display = 'none';
+            document.getElementById('newVisitDate').value = '';
+            document.getElementById('rescheduleReason').value = '';
+        }
+
+        // Function to show loading
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        // Function to hide loading
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        // Function to approve visit
+        function approveVisit(visitorId, visitId) {
+            if (confirm('Are you sure you want to APPROVE this visit?')) {
+                showLoading();
+                
+                fetch(`/employee_action_approve/${visitorId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        visit_id: visitId
+                    })
+                })
+                .then(response => {
+                    // First check if response is JSON
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoading();
+                    if (data.status === "success") {
+                        alert(data.message);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.message || 'Action failed'));
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    console.error('Error:', error);
+                    alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+                });
+            }
+        }
+
+        // Function to reject visit
+        function rejectVisit() {
+            const rejectionReason = document.getElementById('rejectionReason').value;
+            
+            if (!rejectionReason.trim()) {
+                alert('Please provide a reason for rejection');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reject/${currentVisitorId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    rejection_reason: rejectionReason
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRejectModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        // Function to reschedule visit
+        function rescheduleVisit() {
+            const newVisitDate = document.getElementById('newVisitDate').value;
+            const rescheduleReason = document.getElementById('rescheduleReason').value;
+            
+            if (!newVisitDate) {
+                alert('Please select a new visit date');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reschedule/${currentVisitorId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    new_visit_date: newVisitDate,
+                    reschedule_reason: rescheduleReason || "No reason provided"
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRescheduleModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const rejectModal = document.getElementById('rejectModal');
+            const rescheduleModal = document.getElementById('rescheduleModal');
+            
+            if (event.target === rejectModal) {
+                closeRejectModal();
+            }
+            if (event.target === rescheduleModal) {
+                closeRescheduleModal();
+            }
+        }
+    </script>
+</body>
+</html> -->
+
+
+
+
+
+
+
+
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Employee Action - Visitor Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-approved {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .status-rejected {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        .photo-placeholder {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .detail-card {
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+        .detail-card:hover {
+            transform: translateX(4px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen py-8 px-4">
+    <div class="max-w-2xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
+                <i class="fas fa-user-check text-2xl text-blue-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Visitor Approval</h1>
+            <p class="text-gray-600">Review and manage visitor requests</p>
+        </div>
+
+        <!-- Main Container -->
+        <div class="glass-effect rounded-2xl shadow-xl border border-gray-100 overflow-hidden card-hover">
+            <div class="p-8">
+                <!-- Photo Section -->
+                <div class="text-center mb-8">
+                    <div class="inline-block p-4 bg-white rounded-2xl shadow-lg border border-gray-200">
+                        {% if photo_url %}
+                            <img src="{{ photo_url }}" alt="Visitor Photo" 
+                                 class="w-48 h-48 object-cover rounded-xl shadow-md"
+                                 onerror="this.style.display='none'; document.getElementById('no-photo-fallback').style.display='block';">
+                            <div id="no-photo-fallback" class="hidden">
+                                <div class="w-48 h-48 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                    <div class="text-center">
+                                        <i class="fas fa-camera text-3xl mb-2 opacity-70"></i>
+                                        <p class="text-sm font-medium">No Photo Available</p>
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="w-48 h-48 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                <div class="text-center">
+                                    <i class="fas fa-camera text-3xl mb-2 opacity-70"></i>
+                                    <p class="text-sm font-medium">No Photo Available</p>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Visitor Details Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div class="detail-card bg-blue-50 border-l-blue-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-blue-700 mb-1">Visitor ID</label>
+                        <span class="text-lg font-mono text-gray-800">{{ visitor_id }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-purple-50 border-l-purple-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-purple-700 mb-1">Visit ID</label>
+                        <span class="text-lg font-mono text-gray-800">{{ latest_visit_id }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-green-50 border-l-green-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-green-700 mb-1">Purpose</label>
+                        <span class="text-lg text-gray-800">{{ purpose }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-orange-50 border-l-orange-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-orange-700 mb-1">Status</label>
+                        <span class="status-badge status-{{ status.lower() }}">{{ status }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-indigo-50 border-l-indigo-500 p-4 rounded-lg md:col-span-2">
+                        <label class="block text-sm font-semibold text-indigo-700 mb-1">Visit Date</label>
+                        <span class="text-lg text-gray-800">{{ visit_date }}</span>
+                    </div>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="loading" class="hidden flex items-center justify-center p-4 bg-blue-50 rounded-lg mb-6">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-blue-700 font-medium">Processing your request...</span>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button onclick="approveVisit('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Approve</span>
+                    </button>
+                    
+                    <button onclick="showRejectModal('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-times-circle"></i>
+                        <span>Reject</span>
+                    </button>
+                    
+                    <button onclick="showRescheduleModal('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>Reschedule</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Modal -->
+    <div id="rejectModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeRejectModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-4">
+            <div class="glass-effect rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-times-circle text-red-600 text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800">Reject Visit</h3>
+                        </div>
+                        <button onclick="closeRejectModal()" class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg transition-colors">
+                            <i class="fas fa-times text-gray-500"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="mb-4">
+                        <label for="rejectionReason" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Reason for Rejection <span class="text-red-500">*</span>
+                        </label>
+                        <textarea id="rejectionReason" rows="4" 
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
+                                  placeholder="Please provide a clear reason for rejecting this visit..."></textarea>
+                    </div>
+                    <div class="flex space-x-3">
+                        <button onclick="closeRejectModal()" 
+                                class="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Cancel
+                        </button>
+                        <button onclick="rejectVisit()" 
+                                class="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Submit Rejection
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div id="rescheduleModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeRescheduleModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-4">
+            <div class="glass-effect rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-calendar-alt text-blue-600 text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800">Reschedule Visit</h3>
+                        </div>
+                        <button onclick="closeRescheduleModal()" class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg transition-colors">
+                            <i class="fas fa-times text-gray-500"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="newVisitDate" class="block text-sm font-semibold text-gray-700 mb-2">
+                                New Visit Date <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" id="newVisitDate" 
+                                   class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                        </div>
+                        <div>
+                            <label for="rescheduleReason" class="block text-sm font-semibold text-gray-700 mb-2">
+                                Reason for Rescheduling
+                            </label>
+                            <textarea id="rescheduleReason" rows="4" 
+                                      class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                      placeholder="Optional: Provide a reason for rescheduling..."></textarea>
+                        </div>
+                    </div>
+                    <div class="flex space-x-3 mt-6">
+                        <button onclick="closeRescheduleModal()" 
+                                class="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Cancel
+                        </button>
+                        <button onclick="rescheduleVisit()" 
+                                class="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Reschedule
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Store current visitor and visit IDs for modal actions
+        let currentVisitorId = '';
+        let currentVisitId = '';
+
+        // Function to show reject modal
+        function showRejectModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            document.getElementById('rejectModal').classList.remove('hidden');
+        }
+
+        // Function to close reject modal
+        function closeRejectModal() {
+            document.getElementById('rejectModal').classList.add('hidden');
+            document.getElementById('rejectionReason').value = '';
+        }
+
+        // Function to show reschedule modal
+        function showRescheduleModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            
+            // Set minimum date to today
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('newVisitDate').min = today;
+            
+            document.getElementById('rescheduleModal').classList.remove('hidden');
+        }
+
+        // Function to close reschedule modal
+        function closeRescheduleModal() {
+            document.getElementById('rescheduleModal').classList.add('hidden');
+            document.getElementById('newVisitDate').value = '';
+            document.getElementById('rescheduleReason').value = '';
+        }
+
+        // Function to show loading
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        // Function to hide loading
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        // Function to approve visit
+        function approveVisit(visitorId, visitId) {
+            if (confirm('Are you sure you want to APPROVE this visit?')) {
+                showLoading();
+                
+                fetch(`/employee_action_approve/${visitorId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        visit_id: visitId
+                    })
+                })
+                .then(response => {
+                    // First check if response is JSON
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoading();
+                    if (data.status === "success") {
+                        alert(data.message);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.message || 'Action failed'));
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    console.error('Error:', error);
+                    alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+                });
+            }
+        }
+
+        // Function to reject visit
+        function rejectVisit() {
+            const rejectionReason = document.getElementById('rejectionReason').value;
+            
+            if (!rejectionReason.trim()) {
+                alert('Please provide a reason for rejection');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reject/${currentVisitorId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    rejection_reason: rejectionReason
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRejectModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        // Function to reschedule visit
+        function rescheduleVisit() {
+            const newVisitDate = document.getElementById('newVisitDate').value;
+            const rescheduleReason = document.getElementById('rescheduleReason').value;
+            
+            if (!newVisitDate) {
+                alert('Please select a new visit date');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reschedule/${currentVisitorId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    new_visit_date: newVisitDate,
+                    reschedule_reason: rescheduleReason || "No reason provided"
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRescheduleModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        // Close modals when clicking outside
+        window.onclick = function(event) {
+            const rejectModal = document.getElementById('rejectModal');
+            const rescheduleModal = document.getElementById('rescheduleModal');
+            
+            if (event.target === rejectModal) {
+                closeRejectModal();
+            }
+            if (event.target === rescheduleModal) {
+                closeRescheduleModal();
+            }
+        }
+    </script>
+</body>
+</html>

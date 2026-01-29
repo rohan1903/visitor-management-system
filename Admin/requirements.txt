@@ -1,0 +1,5 @@
+Flask
+firebase-admin
+pandas
+openpyxl               # Required by pandas to read .xlsx files
+python-dotenv

@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visitor Management System</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root {
+      --primary: #4361ee;
+      --primary-dark: #3a0ca3;
+      --primary-light: #4895ef;
+      --secondary: #f72585;
+      --accent: #4cc9f0;
+      --success: #38b000;
+      --light: #f8f9fa;
+      --dark: #212529;
+      --gray: #6c757d;
+      --light-gray: #e9ecef;
+      --border-radius: 16px;
+      --border-radius-sm: 12px;
+      --box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      --transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+
+    body {
+      background: linear-gradient(135deg, #f3f5ff 0%, #edf0ff 100%);
+      color: var(--dark);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      line-height: 1.6;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 900px;
+      text-align: center;
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(25px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .logo {
+      width: 120px;
+      height: 120px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 52px;
+      box-shadow: 0 10px 30px rgba(67, 97, 238, 0.3);
+      margin: 0 auto 40px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .logo::before {
+      content: "";
+      position: absolute;
+      top: -10px;
+      left: -10px;
+      right: -10px;
+      bottom: -10px;
+      background: linear-gradient(135deg, var(--primary-light), var(--accent));
+      border-radius: 50%;
+      z-index: -1;
+      opacity: 0.7;
+      filter: blur(15px);
+    }
+
+    h1 {
+      font-size: 2.6rem;
+      font-weight: 800;
+      background: linear-gradient(90deg, var(--primary-dark), var(--primary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 18px;
+      letter-spacing: -0.5px;
+    }
+
+    .subtitle {
+      font-size: 1.1rem;
+      color: var(--gray);
+      margin-bottom: 50px;
+      max-width: 650px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.7;
+    }
+
+    .btn-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 25px;
+      width: 100%;
+      max-width: 850px;
+      margin: 0 auto 60px;
+    }
+
+    .btn {
+      padding: 20px 28px;
+      border-radius: var(--border-radius-sm);
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+      text-decoration: none;
+      box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+      color: white;
+      border: none;
+      outline: none;
+    }
+
+    .btn i {
+      margin-right: 10px;
+      font-size: 1.3rem;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--accent), var(--primary-light));
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, var(--success), #4BB543);
+    }
+
+    .btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+    }
+
+    .btn::after {
+      content: "";
+      position: absolute;
+      top: -50%;
+      left: -50%;
+      width: 200%;
+      height: 200%;
+      background: rgba(255, 255, 255, 0.1);
+      transform: rotate(30deg);
+      transition: var(--transition);
+      opacity: 0;
+    }
+
+    .btn:hover::after {
+      opacity: 1;
+      transform: rotate(30deg) translate(10%, 10%);
+    }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 25px;
+      margin-top: 60px;
+      text-align: left;
+    }
+
+    .feature {
+      background: white;
+      padding: 25px;
+      border-radius: var(--border-radius-sm);
+      box-shadow: var(--box-shadow);
+      transition: var(--transition);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .feature:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 12px 25px rgba(0, 0, 0, 0.12);
+    }
+
+    .feature::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 4px;
+      height: 100%;
+      background: linear-gradient(to bottom, var(--primary), var(--primary-light));
+      opacity: 0;
+      transition: var(--transition);
+    }
+
+    .feature:hover::before {
+      opacity: 1;
+    }
+
+    .feature i {
+      font-size: 1.8rem;
+      color: var(--primary);
+      margin-bottom: 15px;
+      transition: var(--transition);
+    }
+
+    .feature:hover i {
+      transform: scale(1.1);
+    }
+
+    .feature h3 {
+      font-size: 1.1rem;
+      margin-bottom: 8px;
+      color: var(--dark);
+      font-weight: 600;
+    }
+
+    .feature p {
+      font-size: 0.9rem;
+      color: var(--gray);
+      line-height: 1.6;
+    }
+
+    footer {
+      margin-top: 70px;
+      color: var(--gray);
+      font-size: 0.9rem;
+      text-align: center;
+      padding-top: 20px;
+      border-top: 1px solid var(--light-gray);
+      width: 100%;
+    }
+
+    /* Enhanced animations */
+    @keyframes pulse {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+      100% { transform: scale(1); }
+    }
+
+    .logo {
+      animation: fadeIn 0.8s ease-out, pulse 3s infinite ease-in-out;
+    }
+
+    .btn {
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    .feature {
+      animation: fadeIn 0.8s ease-out;
+    }
+
+    /* Responsive improvements */
+    @media (max-width: 768px) {
+      h1 { font-size: 2rem; }
+      .subtitle { font-size: 1rem; }
+      .btn { font-size: 1rem; padding: 18px 25px; }
+      .features { margin-top: 40px; }
+      .btn-grid { gap: 20px; }
+    }
+
+    @media (max-width: 480px) {
+      .logo { width: 90px; height: 90px; font-size: 40px; }
+      h1 { font-size: 1.7rem; }
+      .btn-grid { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="logo">
+      <i class="fas fa-user-shield"></i>
+    </div>
+
+    <h1>Visitor Management System</h1>
+    <p class="subtitle">Streamline your visitor check-ins with our secure and efficient management solution</p>
+
+    <div class="btn-grid">
+      <a href="/register" class="btn btn-primary">
+        <i class="fas fa-user-plus"></i> New Visitor Registration
+      </a>
+      <a href="/verify" class="btn btn-secondary">
+        <i class="fas fa-search"></i> Returning Visitor Verification
+      </a>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <i class="fas fa-fingerprint"></i>
+        <h3>Biometric Security</h3>
+        <p>Advanced facial recognition ensures secure and authenticated visitor identification.</p>
+      </div>
+      
+      <div class="feature">
+        <i class="fas fa-clock"></i>
+        <h3>Quick Check-In</h3>
+        <p>Accelerated visitor entry process for an efficient on-site experience.</p>
+      </div>
+      <div class="feature">
+        <i class="fas fa-shield-alt"></i>
+        <h3>Secure Data</h3>
+        <p>All visitor records are encrypted and stored securely in our database.</p>
+      </div>
+    </div>
+
+    <footer>
+      <p>© 2025 Visitor Management System. All rights reserved.</p>
+    </footer>
+  </div>
+</body>
+</html>

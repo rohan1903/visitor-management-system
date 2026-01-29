@@ -1,0 +1,7 @@
+openai-whisper @ git+https://github.com/openai/whisper.git
+sounddevice
+soundfile
+numpy
+firebase-admin
+torch
+pip install insightface onnxruntime opencv-python firebase-admin flask
