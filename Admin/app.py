@@ -1682,11 +1682,11 @@ def upload_invites():
 
 # --------------------------
 # Visitors List (Realtime DB)
-# # --------------------------
-# @app.route('/visitors')
-# def visitors_list():
-#     visitors_ref = db.reference('visitors')
-#     all_visitors = visitors_ref.get()
+# --------------------------
+@app.route('/visitors')
+def visitors_list():
+    visitors_ref = db.reference('visitors')
+    all_visitors = visitors_ref.get()
 #     visitors_data = []
 
 #     now = datetime.now()
@@ -3515,66 +3515,8 @@ from flask import Flask, render_template_string, request, abort # Import abort f
 from datetime import datetime, timedelta
 # Assuming db and db.reference are properly imported
 
-# --- New Visitor Detail Route ---
-
-# @app.route('/visitor/<visitor_id>')
-# def visitor_detail(visitor_id):
-#     """Fetches and displays detailed information for a single visitor."""
-#     visitors_ref = db.reference('visitors')
-    
-#     # 1. Fetch specific visitor data using the ID
-#     visitor_data = visitors_ref.child(visitor_id).get()
-    
-#     if not visitor_data:
-#         # Return a 404 error if the ID is not found in the database
-#         return abort(404, description="Visitor record not found.")
-
-#     # 2. Process data (similar logic as the list page)
-#     # Convert blacklist status
-#     raw_blacklist = visitor_data.get('blacklisted', False)
-#     if isinstance(raw_blacklist, str):
-#         blacklisted = raw_blacklist.strip().lower() in ['yes', 'true', '1']
-#     else:
-#         blacklisted = bool(raw_blacklist)
-
-#     # Determine current status and check for exceeded time
-#     now = datetime.now()
-#     status = visitor_data.get('status', 'Checked-Out')
-#     check_in_time = visitor_data.get('check_in_time')
-#     expected_checkout = visitor_data.get('expected_checkout_time')
-    
-#     if status.lower() == 'checked-in' and check_in_time and expected_checkout:
-#         try:
-#             checkout_dt = datetime.strptime(expected_checkout, "%Y-%m-%d %H:%M:%S")
-#             if now > checkout_dt:
-#                 status = 'Exceeded'
-#         except ValueError:
-#             pass
-            
-#     # Calculate number of visits
-#     visits = visitor_data.get('visits', {})
-#     num_visits = len(visits) if isinstance(visits, dict) else 0
-
-#     # Prepare the final data structure
-#     visitor = {
-#         'id': visitor_id,
-#         'unique_id': visitor_data.get('unique_id', 'N/A'),
-#         'name': visitor_data.get('name', 'N/A'),
-#         'contact': visitor_data.get('contact', 'N/A'),
-#         'purpose': visitor_data.get('purpose', 'N/A'),
-#         'status': status,
-#         'blacklisted': blacklisted,
-#         'blacklist_reason': visitor_data.get('blacklist_reason', 'N/A'),
-#         'transactions': visitor_data.get('transactions', {}),
-#         'visit_date': visitor_data.get('visit_date', 'N/A'),
-#         'num_visits': num_visits,
-#         'check_in_time': check_in_time if check_in_time else 'N/A',
-#         'expected_checkout_time': expected_checkout if expected_checkout else 'N/A',
-        
-#     }
-
-#     # 3. HTML Template for Detailed View
-#     DETAIL_HTML = """
+@app.route('/visitor/<visitor_id>')
+def visitor_detail(visitor_id):
 #     <!DOCTYPE html>
 #     <html lang="en">
 #     <head>
