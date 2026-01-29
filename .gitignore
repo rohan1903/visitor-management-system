@@ -63,12 +63,14 @@ htmlcov/
 # uploads_reg/
 # **/uploads_reg/
 
-# Large model files (optional - uncomment if you want to exclude from git)
-# *.pkl
-# *.dat
-# *.onnx
-# *.h5
-# *.pb
+# Large model files (excluded due to GitHub size limits)
+*.pkl
+*.dat
+*.onnx
+*.h5
+*.pb
+# But keep small model files if needed
+!requirements.txt
 
 # OS files
 .DS_Store
