@@ -1,6 +1,6 @@
 # Visitor Management System (VMS)
 
-A comprehensive visitor management system for educational institutions with face recognition, AI chatbot, and analytics capabilities.
+A comprehensive visitor management system for events and general visitor management with face recognition, AI chatbot, and analytics capabilities.
 
 ## 🪟 Quick Start for Windows Users
 
@@ -311,7 +311,7 @@ The following model files should be present:
 - Face recognition verification
 - Employee management
 - QR code generation
-- AI chatbot for campus navigation
+- AI chatbot for event navigation and premises guidance
 - Speech-to-text support
 - Check-in/check-out system
 

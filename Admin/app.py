@@ -1,12 +1,18 @@
 import os
 import uuid
 import smtplib
+import random
 from email.mime.text import MIMEText
 from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, jsonify
 import pandas as pd
 from dotenv import load_dotenv
-import firebase_admin
-from firebase_admin import credentials, db
+try:
+    import firebase_admin
+    from firebase_admin import credentials, db
+    FIREBASE_AVAILABLE = True
+except ImportError:
+    FIREBASE_AVAILABLE = False
+    print("⚠️  firebase-admin not installed. Using mock data mode.")
 import pickle
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
@@ -42,12 +48,33 @@ app.config['UPLOAD_FOLDER'] = 'UPLOADS'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # --------------------------
-# Firebase Initialization
+# Firebase Initialization (Optional - uses mock data if unavailable)
 # --------------------------
-cred = credentials.Certificate("firebase_credentials.json")
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://v-guard-af8af-default-rtdb.firebaseio.com/'
-})
+# To switch to real Firebase: Set USE_MOCK_DATA = False and ensure firebase_credentials.json exists
+USE_MOCK_DATA = os.getenv('USE_MOCK_DATA', 'True').lower() == 'true'  # Default to True (mock data)
+
+if FIREBASE_AVAILABLE and not USE_MOCK_DATA:
+    try:
+        if os.path.exists("firebase_credentials.json"):
+            cred = credentials.Certificate("firebase_credentials.json")
+            firebase_admin.initialize_app(cred, {
+                'databaseURL': 'https://v-guard-af8af-default-rtdb.firebaseio.com/'
+            })
+            print("✅ Firebase initialized successfully - Using REAL data")
+        else:
+            USE_MOCK_DATA = True
+            print("⚠️  Firebase credentials not found. Using mock data for demonstration.")
+            print("💡 To use real Firebase: Add firebase_credentials.json and set USE_MOCK_DATA=False")
+    except Exception as e:
+        USE_MOCK_DATA = True
+        print(f"⚠️  Firebase initialization failed: {e}. Using mock data for demonstration.")
+elif USE_MOCK_DATA:
+    print("💡 Using MOCK DATA for demonstration")
+    print("💡 To switch to real Firebase: Set environment variable USE_MOCK_DATA=False")
+    print("   Example: export USE_MOCK_DATA=False")
+else:
+    USE_MOCK_DATA = True
+    print("⚠️  Firebase not available. Using mock data for demonstration.")
 
 # --------------------------
 # Email Config
@@ -93,12 +120,246 @@ def trigger_invitation(email):
     return send_email(email, registration_link)
 
 # --------------------------
+# Mock Data Functions (for demonstration without Firebase)
+# --------------------------
+def get_mock_visitors():
+    """Generate diverse mock visitor data for demonstration"""
+    
+    mock_visitors = {}
+    
+    # More diverse data pools
+    first_names = ['John', 'Jane', 'Bob', 'Alice', 'Charlie', 'Diana', 'Ethan', 'Fiona', 'George', 'Hannah',
+                   'Michael', 'Sarah', 'David', 'Emily', 'James', 'Olivia', 'William', 'Sophia', 'Robert', 'Emma',
+                   'Richard', 'Isabella', 'Joseph', 'Mia', 'Thomas', 'Charlotte', 'Christopher', 'Amelia', 'Daniel', 'Harper',
+                   'Matthew', 'Evelyn', 'Anthony', 'Abigail', 'Mark', 'Elizabeth', 'Donald', 'Sofia', 'Steven', 'Avery']
+    
+    last_names = ['Doe', 'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez',
+                  'Martinez', 'Hernandez', 'Lopez', 'Wilson', 'Anderson', 'Thomas', 'Taylor', 'Moore', 'Jackson', 'Martin',
+                  'Lee', 'Thompson', 'White', 'Harris', 'Sanchez', 'Clark', 'Ramirez', 'Lewis', 'Robinson', 'Walker',
+                  'Young', 'Allen', 'King', 'Wright', 'Scott', 'Torres', 'Nguyen', 'Hill', 'Flores', 'Green']
+    
+    purposes = ['Business Meeting', 'Job Interview', 'Client Presentation', 'Product Demo', 'Training Session',
+                'Delivery', 'Maintenance Work', 'Security Audit', 'Vendor Meeting', 'Consultation',
+                'Site Visit', 'Equipment Installation', 'Network Setup', 'Software Demo', 'Contract Signing',
+                'Team Collaboration', 'Project Review', 'Budget Discussion', 'Strategic Planning', 'Emergency Response']
+    
+    statuses = ['Registered', 'Approved', 'Checked-In', 'Checked-Out', 'Time Exceeded', 'Rescheduled', 'Rejected']
+    status_weights = [0.15, 0.20, 0.25, 0.20, 0.05, 0.10, 0.05]  # Weighted random selection
+    
+    departments = ['IT', 'HR', 'Sales', 'Marketing', 'Finance', 'Operations', 'Engineering', 'Legal', 'Security', 'Facilities']
+    
+    employee_first = ['Sarah', 'Mike', 'Emily', 'David', 'Lisa', 'Jennifer', 'Chris', 'Amanda', 'Ryan', 'Jessica',
+                      'Kevin', 'Nicole', 'Brian', 'Michelle', 'Jason', 'Ashley', 'Justin', 'Stephanie', 'Brandon', 'Melissa']
+    employee_last = ['Johnson', 'Chen', 'Rodriguez', 'Kim', 'Anderson', 'Martinez', 'Taylor', 'Lee', 'White', 'Harris']
+    
+    companies = ['TechCorp', 'Global Solutions', 'Innovate Inc', 'Digital Dynamics', 'Cloud Systems', 'Data Analytics Co',
+                 'Smart Solutions', 'Future Tech', 'Enterprise Systems', 'NextGen Industries', 'Prime Consulting',
+                 'Elite Services', 'Apex Corporation', 'Summit Group', 'Vertex Technologies']
+    
+    base_date = datetime.now()
+    
+    # Generate 40-50 visitors for more variety
+    num_visitors = random.randint(40, 50)
+    
+    for i in range(num_visitors):
+        visitor_id = f"visitor_{i+1}"
+        
+        # Random name combination
+        first_name = random.choice(first_names)
+        last_name = random.choice(last_names)
+        full_name = f"{first_name} {last_name}"
+        
+        # Varied visit dates (past 60 days)
+        days_ago = random.randint(0, 60)
+        hours_ago = random.randint(0, 23)
+        check_in = base_date - timedelta(days=days_ago, hours=hours_ago)
+        
+        # Status-based check-out logic
+        status = random.choices(statuses, weights=status_weights)[0]
+        
+        if status in ['Checked-Out', 'Time Exceeded']:
+            # For checked-out visitors, they stayed 1-6 hours
+            duration_hours = random.randint(1, 6)
+            check_out = check_in + timedelta(hours=duration_hours)
+            check_out_time = check_out.strftime('%Y-%m-%d %H:%M:%S')
+        elif status == 'Checked-In':
+            # Currently checked in - no check out yet
+            check_out_time = 'N/A'
+        else:
+            # Registered/Approved/Rejected - no check in yet
+            check_in = None
+            check_out_time = 'N/A'
+        
+        # Employee assignment
+        emp_first = random.choice(employee_first)
+        emp_last = random.choice(employee_last)
+        employee_name = f"{emp_first} {emp_last}"
+        
+        # Department based on purpose (some logic)
+        purpose = random.choice(purposes)
+        if 'IT' in purpose or 'Network' in purpose or 'Software' in purpose:
+            dept = 'IT'
+        elif 'Interview' in purpose or 'HR' in purpose:
+            dept = 'HR'
+        elif 'Sales' in purpose or 'Client' in purpose or 'Demo' in purpose:
+            dept = 'Sales'
+        elif 'Marketing' in purpose:
+            dept = 'Marketing'
+        elif 'Finance' in purpose or 'Budget' in purpose:
+            dept = 'Finance'
+        elif 'Maintenance' in purpose or 'Facilities' in purpose:
+            dept = 'Facilities'
+        elif 'Security' in purpose:
+            dept = 'Security'
+        else:
+            dept = random.choice(departments)
+        
+        # Blacklist logic (15% chance)
+        is_blacklisted = random.random() < 0.15
+        blacklist_reasons = [
+            'Security violation',
+            'Unauthorized access attempt',
+            'Previous misconduct',
+            'Policy violation',
+            'Suspicious behavior',
+            'No reason provided'
+        ] if is_blacklisted else 'No reason provided'
+        
+        # Email variations
+        email_domains = ['gmail.com', 'yahoo.com', 'outlook.com', 'company.com', 'business.org', 'corp.net']
+        email = f"{first_name.lower()}.{last_name.lower()}@{random.choice(email_domains)}"
+        
+        # Phone number variations
+        phone_formats = [
+            f"+1-{random.randint(200, 999)}-{random.randint(100, 999)}-{random.randint(1000, 9999)}",
+            f"+44-{random.randint(10, 99)}-{random.randint(1000, 9999)}-{random.randint(1000, 9999)}",
+            f"+91-{random.randint(90000, 99999)}-{random.randint(10000, 99999)}",
+            f"+1-555-{random.randint(100, 999)}-{random.randint(1000, 9999)}"
+        ]
+        
+        # Expected duration based on purpose
+        if 'Meeting' in purpose or 'Discussion' in purpose:
+            expected_duration = f"{random.randint(1, 2)} hours"
+        elif 'Interview' in purpose:
+            expected_duration = f"{random.randint(1, 3)} hours"
+        elif 'Demo' in purpose or 'Presentation' in purpose:
+            expected_duration = f"{random.randint(2, 4)} hours"
+        elif 'Training' in purpose:
+            expected_duration = f"{random.randint(4, 8)} hours"
+        else:
+            expected_duration = f"{random.randint(1, 4)} hours"
+        
+        # Create structure matching Firebase format
+        visit_data = {
+            'check_in_time': check_in.strftime('%Y-%m-%d %H:%M:%S') if check_in else 'N/A',
+            'check_out_time': check_out_time,
+            'status': status,
+            'purpose': purpose,
+            'employee_name': employee_name,
+            'department': dept,
+            'expected_duration': expected_duration,
+            'created_at': check_in.strftime('%Y-%m-%d %H:%M:%S') if check_in else (base_date - timedelta(days=days_ago)).strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # Some visitors have multiple visits (20% chance)
+        visits = {f"visit_{i+1}": visit_data}
+        if random.random() < 0.2 and i > 5:  # Don't do this for first few visitors
+            # Add a previous visit
+            prev_days = random.randint(10, 45)
+            prev_check_in = base_date - timedelta(days=prev_days, hours=random.randint(9, 17))
+            prev_check_out = prev_check_in + timedelta(hours=random.randint(1, 3))
+            visits[f"visit_{i+1}_prev"] = {
+                'check_in_time': prev_check_in.strftime('%Y-%m-%d %H:%M:%S'),
+                'check_out_time': prev_check_out.strftime('%Y-%m-%d %H:%M:%S'),
+                'status': 'Checked-Out',
+                'purpose': random.choice(purposes),
+                'employee_name': employee_name,
+                'department': dept,
+                'expected_duration': f"{random.randint(1, 3)} hours",
+                'created_at': prev_check_in.strftime('%Y-%m-%d %H:%M:%S')
+            }
+        
+        mock_visitors[visitor_id] = {
+            'basic_info': {
+                'name': full_name,
+                'contact': random.choice(phone_formats),
+                'email': email,
+                'blacklisted': is_blacklisted,
+                'blacklist_reason': random.choice(blacklist_reasons) if is_blacklisted else 'No reason provided',
+                'company': random.choice(companies) if random.random() < 0.4 else 'N/A'
+            },
+            'visits': visits
+        }
+    
+    return mock_visitors
+
+def get_mock_employees():
+    """Generate diverse mock employee data"""
+    departments = ['IT', 'HR', 'Sales', 'Marketing', 'Finance', 'Operations', 'Engineering', 'Legal', 'Security', 'Facilities']
+    
+    first_names = ['Sarah', 'Mike', 'Emily', 'David', 'Lisa', 'Jennifer', 'Chris', 'Amanda', 'Ryan', 'Jessica',
+                   'Kevin', 'Nicole', 'Brian', 'Michelle', 'Jason', 'Ashley', 'Justin', 'Stephanie', 'Brandon', 'Melissa',
+                   'Robert', 'Nicole', 'Daniel', 'Lauren', 'Matthew', 'Rachel', 'Andrew', 'Samantha', 'Joshua', 'Megan']
+    
+    last_names = ['Johnson', 'Chen', 'Rodriguez', 'Kim', 'Anderson', 'Martinez', 'Taylor', 'Lee', 'White', 'Harris',
+                  'Wilson', 'Moore', 'Jackson', 'Thompson', 'Garcia', 'Martinez', 'Robinson', 'Clark', 'Rodriguez', 'Lewis']
+    
+    positions_by_dept = {
+        'IT': ['Senior Developer', 'Software Engineer', 'DevOps Engineer', 'System Administrator', 'IT Manager', 'Network Engineer'],
+        'HR': ['HR Manager', 'Recruiter', 'HR Specialist', 'Talent Acquisition', 'Benefits Coordinator', 'HR Director'],
+        'Sales': ['Sales Manager', 'Account Executive', 'Sales Representative', 'Business Development', 'Sales Director', 'Account Manager'],
+        'Marketing': ['Marketing Manager', 'Content Creator', 'Digital Marketing Specialist', 'Brand Manager', 'Marketing Director', 'SEO Specialist'],
+        'Finance': ['Financial Analyst', 'Accountant', 'Finance Manager', 'CFO', 'Controller', 'Budget Analyst'],
+        'Operations': ['Operations Manager', 'Operations Analyst', 'Supply Chain Manager', 'Operations Director', 'Logistics Coordinator'],
+        'Engineering': ['Senior Engineer', 'Project Engineer', 'Engineering Manager', 'Lead Engineer', 'Principal Engineer'],
+        'Legal': ['Legal Counsel', 'Compliance Officer', 'Legal Assistant', 'General Counsel', 'Paralegal'],
+        'Security': ['Security Manager', 'Security Analyst', 'Security Officer', 'Chief Security Officer', 'Security Specialist'],
+        'Facilities': ['Facilities Manager', 'Maintenance Supervisor', 'Facilities Coordinator', 'Building Manager']
+    }
+    
+    mock_employees = {}
+    num_employees = random.randint(25, 35)
+    
+    for i in range(num_employees):
+        emp_id = f"emp_{i+1}"
+        dept = random.choice(departments)
+        first_name = random.choice(first_names)
+        last_name = random.choice(last_names)
+        full_name = f"{first_name} {last_name}"
+        
+        # Get position based on department
+        positions = positions_by_dept.get(dept, ['Manager', 'Specialist', 'Coordinator'])
+        position = random.choice(positions)
+        
+        # Email variations
+        email_formats = [
+            f"{first_name.lower()}.{last_name.lower()}@company.com",
+            f"{first_name[0].lower()}{last_name.lower()}@company.com",
+            f"{first_name.lower()}{last_name[0].lower()}@company.com",
+            f"{first_name.lower()}{random.randint(1, 99)}@company.com"
+        ]
+        
+        mock_employees[emp_id] = {
+            'name': full_name,
+            'email': random.choice(email_formats),
+            'department': dept,
+            'position': position,
+            'employee_id': f"EMP{random.randint(1000, 9999)}",
+            'phone': f"+1-555-{random.randint(100, 999)}-{random.randint(1000, 9999)}"
+        }
+    
+    return mock_employees
+
+# --------------------------
 # Analytics Functions
 # --------------------------
 def get_visitor_analytics():
     """Get comprehensive visitor analytics for dashboard"""
-    visitors_ref = db.reference('visitors')
-    all_visitors = visitors_ref.get() or {}
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+    else:
+        visitors_ref = db.reference('visitors')
+        all_visitors = visitors_ref.get() or {}
     
     now = datetime.now()
     today = now.date()
@@ -1255,11 +1516,14 @@ def admin_dashboard():
 
 def get_visitor_analytics(time_filter='today', start_date=None, end_date=None, start_time='00:00', end_time='23:59'):
     """Generate comprehensive analytics data from Firebase database with time range filters"""
-    visitors_ref = db.reference('visitors')
-    employees_ref = db.reference('employees')  # Add employees reference
-    
-    all_visitors = visitors_ref.get() or {}
-    all_employees = employees_ref.get() or {}  # Get employees data
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+        all_employees = get_mock_employees()
+    else:
+        visitors_ref = db.reference('visitors')
+        employees_ref = db.reference('employees')
+        all_visitors = visitors_ref.get() or {}
+        all_employees = employees_ref.get() or {}
     
     today = datetime.now().strftime('%Y-%m-%d')
     current_time = datetime.now()
@@ -1681,13 +1945,8 @@ def upload_invites():
     return redirect(url_for('admin_dashboard'))
 
 # --------------------------
-# Visitors List (Realtime DB)
-# --------------------------
-@app.route('/visitors')
-def visitors_list():
-    visitors_ref = db.reference('visitors')
-    all_visitors = visitors_ref.get()
-#     visitors_data = []
+# Visitors List (Realtime DB) - Removed duplicate route definition
+# The working route is defined later in the file
 
 #     now = datetime.now()
 
@@ -2646,8 +2905,11 @@ def visitors_list():
 
 @app.route('/visitors')
 def visitors_list():
-    visitors_ref = db.reference('visitors')
-    all_visitors = visitors_ref.get()
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+    else:
+        visitors_ref = db.reference('visitors')
+        all_visitors = visitors_ref.get() or {}
     visitors_data = []
 
     now = datetime.now()
@@ -3515,178 +3777,17 @@ from flask import Flask, render_template_string, request, abort # Import abort f
 from datetime import datetime, timedelta
 # Assuming db and db.reference are properly imported
 
-@app.route('/visitor/<visitor_id>')
-def visitor_detail(visitor_id):
-#     <!DOCTYPE html>
-#     <html lang="en">
-#     <head>
-#         <meta charset="UTF-8">
-#         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-#         <title>Visitor Detail: {{ visitor.name }}</title>
-#         <script src="https://cdn.tailwindcss.com"></script>
-#         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-#         <style> .status-pill { @apply px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider; } </style>
-#     </head>
-#     <body class="min-h-screen bg-gray-50 p-6">
-#         <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-2xl p-8 border border-gray-100">
-            
-#             <a href="/visitors" class="text-blue-600 hover:text-blue-800 text-sm mb-4 inline-block">
-#                 <i class="fas fa-arrow-left mr-1"></i> Back to Dashboard
-#             </a>
-
-#             <h1 class="text-3xl font-bold mb-2 text-gray-900 flex items-center">
-#                 Visitor Record: {{ visitor.name }}
-#             </h1>
-#             <p class="text-gray-500 mb-6">Unique ID: <span class="font-mono text-gray-700">{{ visitor.unique_id }}</span></p>
-
-#             <div class="mb-6 p-4 rounded-lg
-# {% if visitor.status == 'Checked-In' or visitor.status == 'Approved' %}
-# bg-green-50 border-green-300
-# {% elif visitor.status == 'Exceeded' or visitor.status == 'Blacklisted' or visitor.status == 'Rejected' %}
-# bg-red-50 border-red-300
-# {% elif visitor.status == 'Registered' or visitor.status == 'Rescheduled' %}
-# bg-yellow-50 border-yellow-300
-# {% else %}
-# bg-gray-50 border-gray-300
-# {% endif %}
-# border flex justify-between items-center shadow-sm">
-# <p class="text-xl font-semibold">Current Status:</p>
-
-# {% if visitor.status == 'Checked-In' %}
-# <span class="bg-green-100 text-green-700 border border-green-400 px-3 py-1 text-sm font-medium rounded-full">Checked-In</span>
-
-# {% elif visitor.status == 'Approved' %}
-# <!-- NEW: Approved status - Blue/Green for ready to check-in -->
-# <span class="bg-blue-100 text-blue-700 border border-blue-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-check-circle mr-1"></i>Approved</span>
-
-# {% elif visitor.status == 'Registered' %}
-# <!-- NEW: Registered status - Yellow for pending/neutral -->
-# <span class="bg-yellow-100 text-yellow-700 border border-yellow-400 px-3 py-1 text-sm font-medium rounded-full">Registered</span>
-
-# {% elif visitor.status == 'Rescheduled' %}
-# <!-- NEW: Rescheduled status - Yellow for neutral/pending -->
-# <span class="bg-yellow-100 text-yellow-700 border border-yellow-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-calendar-alt mr-1"></i>Rescheduled</span>
-
-# {% elif visitor.status == 'Rejected' %}
-# <!-- NEW: Rejected status - Red for failure -->
-# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-times-circle mr-1"></i>Rejected</span>
-
-# {% elif visitor.status == 'Checked-Out' %}
-# <span class="bg-gray-200 text-gray-700 px-3 py-1 text-sm font-medium rounded-full">Checked-Out</span>
-
-# {% elif visitor.status == 'Exceeded' %}
-# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-exclamation-triangle mr-1"></i>Time Exceeded</span>
-
-# {% elif visitor.status == 'Blacklisted' %}
-# <span class="bg-red-200 text-red-700 border border-red-400 px-3 py-1 text-sm font-medium rounded-full"><i class="fas fa-ban mr-1"></i>Blacklisted</span>
-
-# {% else %}
-# <!-- Fallback for any other unknown status -->
-# <span class="bg-gray-100 text-gray-700 border border-gray-400 px-3 py-1 text-sm font-medium rounded-full">Status Unknown</span>
-
-# {% endif %}
-
-# </div>
-
-#             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-#                 <div class="space-y-4">
-#                     <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Personal & Visit Data</h2>
-                    
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Contact:</span>
-#                         <span class="text-gray-800">{{ visitor.contact }}</span>
-#                     </div>
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Purpose:</span>
-#                         <span class="text-gray-800">{{ visitor.purpose }}</span>
-#                     </div>
-                    
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Last Visit Date:</span>
-#                         <span class="text-gray-800">{{ visitor.visit_date }}</span>
-#                     </div>
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Total Visits:</span>
-#                         <span class="text-blue-700 font-bold">{{ visitor.num_visits }}</span>
-#                     </div>
-#                 </div>
-
-#                 <div class="space-y-4">
-#                     <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Entry & Security</h2>
-
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Check-In Time:</span>
-#                         <span class="text-gray-800">{{ visitor.check_in_time }}</span>
-#                     </div>
-#                     <div class="flex justify-between border-b pb-1">
-#                         <span class="font-medium text-gray-600">Expected Check-Out:</span>
-#                         <span class="text-gray-800">{{ visitor.expected_checkout_time }}</span>
-#                     </div>
-                    
-                    
-#                     <div class="p-3 mt-4 rounded-lg {% if visitor.blacklisted %}bg-red-50 border-red-400{% else %}bg-green-50 border-green-400{% endif %} border">
-#                         <div class="flex justify-between items-center mb-1">
-#                             <span class="font-bold text-lg text-gray-700">Blacklisted:</span>
-#                             <span class="status-pill {% if visitor.blacklisted %}bg-red-600 text-white{% else %}bg-green-600 text-white{% endif %}">
-#                                 {% if visitor.blacklisted %} YES {% else %} NO {% endif %}
-#                             </span>
-#                         </div>
-#                         <p class="text-sm text-gray-600 italic">
-#                             Reason: {{ visitor.blacklist_reason if visitor.blacklist_reason != 'N/A' else 'N/A' }}
-#                         </p>
-#                     </div>
-
-#                     <div class="pt-4 flex justify-end">
-#                          {% if visitor.blacklisted %}
-#                              <button onclick="alert('Functionality needs to be implemented. Visitor ID: {{ visitor.id }}')"
-#                                     class="bg-yellow-500 hover:bg-yellow-600 text-white font-semibold px-4 py-2 text-sm rounded-lg shadow-md transition duration-150 ease-in-out">
-#                                 <i class="fas fa-undo mr-1"></i> Unblock Visitor
-#                             </button>
-#                         {% else %}
-#                             <button onclick="alert('Functionality needs to be implemented. Visitor ID: {{ visitor.id }}')"
-#                                     class="bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 text-sm rounded-lg shadow-md transition duration-150 ease-in-out">
-#                                 <i class="fas fa-user-slash mr-1"></i> Blacklist Visitor
-#                             </button>
-#                         {% endif %}
-#                     </div>
-#                 </div>
-#             </div>
-
-#             <div class="mt-8 border-t pt-6">
-#                 <h2 class="text-2xl font-semibold text-blue-700 border-b pb-2 mb-4">Transaction History ({{ visitor.transactions|length }})</h2>
-#                 {% if visitor.transactions %}
-#                 <ul class="space-y-3">
-#                     {% for tx_id, tx in visitor.transactions.items() %}
-#                     <li class="bg-gray-50 p-3 rounded-lg border border-gray-200 shadow-sm">
-#                         <div class="flex justify-between text-sm">
-#                             <span class="font-mono text-xs text-gray-500">TX ID: {{ tx_id }}</span>
-#                             <span class="font-semibold text-gray-700">{{ tx.get('duration_total', 'N/A') }} Total</span>
-#                         </div>
-#                         <div class="flex justify-between text-lg font-medium text-gray-800">
-#                             <span>Check-In: **{{ tx.get('check_in', 'N/A') }}**</span>
-#                             <span>Check-Out: **{{ tx.get('check_out', 'N/A') }}**</span>
-#                         </div>
-#                     </li>
-#                     {% endfor %}
-#                 </ul>
-#                 {% else %}
-#                     <p class="text-gray-500 italic">No historical transactions available for this visitor.</p>
-#                 {% endif %}
-#             </div>
-            
-#         </div>
-#     </body>
-#     </html>
-#     """
-#     return render_template_string(DETAIL_HTML, visitor=visitor) 
+# Removed duplicate commented-out route definition
 
 @app.route('/visitor/<visitor_id>')
 def visitor_detail(visitor_id):
     """Fetches and displays detailed information for a single visitor."""
-    visitors_ref = db.reference('visitors')
-    
-    # 1. Fetch specific visitor data using the ID
-    visitor_data = visitors_ref.child(visitor_id).get()
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+        visitor_data = all_visitors.get(visitor_id)
+    else:
+        visitors_ref = db.reference('visitors')
+        visitor_data = visitors_ref.child(visitor_id).get()
     
     if not visitor_data:
         # Return a 404 error if the ID is not found in the database
@@ -4295,8 +4396,11 @@ def visitor_detail(visitor_id):
     return render_template_string(DETAIL_HTML, visitor=visitor)
 @app.route('/feedback_analysis')
 def feedback_analysis():
-    visitors_ref = db.reference('visitors')
-    all_visitors = visitors_ref.get()
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+    else:
+        visitors_ref = db.reference('visitors')
+        all_visitors = visitors_ref.get() or {}
 
     feedback_results = []
     sentiment_counts = {"Positive": 0, "Neutral": 0, "Negative": 0}
@@ -4566,11 +4670,14 @@ def visitor_registration():
 # --------------------------
 @app.route('/employees')
 def employees_list():
-    employees_ref = db.reference('employees')
-    visitors_ref = db.reference('visitors')
-    
-    all_employees = employees_ref.get() or {}
-    all_visitors = visitors_ref.get() or {}
+    if USE_MOCK_DATA:
+        all_employees = get_mock_employees()
+        all_visitors = get_mock_visitors()
+    else:
+        employees_ref = db.reference('employees')
+        visitors_ref = db.reference('visitors')
+        all_employees = employees_ref.get() or {}
+        all_visitors = visitors_ref.get() or {}
     
     # Calculate visitor counts for each employee
     employee_analytics = {}
@@ -5066,4 +5173,10 @@ def delete_employee(emp_id):
     return jsonify({"success": True})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    print("\n" + "="*50)
+    print("🚀 Starting Admin Dashboard...")
+    print("="*50)
+    print("📊 Dashboard URL: http://localhost:5000")
+    print("💡 Using mock data (no Firebase required)")
+    print("="*50 + "\n")
+    app.run(host='0.0.0.0', port=5000, debug=True)

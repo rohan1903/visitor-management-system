@@ -210,7 +210,7 @@ def send_employee_notification(employee_email, employee_name, visitor_data, prof
                 </div>
 
                 <p style="font-size: 13px; color: #777; text-align: center;">
-                    This is an automated message from the Secure Visitor Management System.
+                    This is an automated message from the Visitor Management System.
                 </p>
             </div>
         </body>

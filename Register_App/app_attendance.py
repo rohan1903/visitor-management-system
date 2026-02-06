@@ -31,14 +31,14 @@
 #             print(f"⚠️ Error with {v.get('name', 'Unknown')}: {e}")
 #     return None, None
 
-# # ✅ Main Attendance Loop
+# # ✅ Main Visitor Check-in Loop
 # def attendance_loop():
 #     cap = cv2.VideoCapture(0)
 #     if not cap.isOpened():
 #         print("❌ Webcam not available.")
 #         return
 
-#     print("🎯 Starting attendance monitor...")
+#     print("🎯 Starting visitor check-in monitor...")
 #     last_seen = {}  # vid -> last detected timestamp
 
 #     while True:
@@ -92,7 +92,7 @@
 # if __name__ == '__main__':
 #     import threading
 #     threading.Thread(target=attendance_loop, daemon=True).start()
-#     print("🌐 Attendance loop running... Press CTRL+C to stop.")
+#     print("🌐 Visitor check-in loop running... Press CTRL+C to stop.")
 #     while True:
 #         sleep(60)
 
@@ -136,14 +136,14 @@
 #             print(f"⚠️ Error verifying {v.get('name', 'Unknown')}: {e}")
 #     return None, None
 
-# # ✅ Attendance Monitoring Loop
+# # ✅ Visitor Check-in Monitoring Loop
 # def attendance_loop():
 #     cap = cv2.VideoCapture(0)
 #     if not cap.isOpened():
 #         print("❌ Webcam not available.")
 #         return
 
-#     print("🎯 Starting attendance monitor...")
+#     print("🎯 Starting visitor check-in monitor...")
 #     last_seen = {}
 
 #     while True:
@@ -213,7 +213,7 @@
 # if __name__ == '__main__':
 #     import threading
 #     threading.Thread(target=attendance_loop, daemon=True).start()
-#     print("🌐 Attendance loop running... Press CTRL+C to stop.")
+#     print("🌐 Visitor check-in loop running... Press CTRL+C to stop.")
 #     while True:
 #         sleep(60)
 
@@ -256,14 +256,14 @@
 #             continue
 #     return None, None
 
-# # ✅ Attendance Loop
+# # ✅ Visitor Check-in Loop
 # def attendance_loop():
 #     cap = cv2.VideoCapture(0)
 #     if not cap.isOpened():
 #         print("❌ Webcam not available.")
 #         return
 
-#     print("🎯 Starting attendance monitor...")
+#     print("🎯 Starting visitor check-in monitor...")
 #     last_seen = {}
 #     last_face_time = time()
 #     last_no_face_log_time = time()
@@ -273,7 +273,7 @@
 #         if not ret:
 #             break
 
-#         cv2.imshow("Live Attendance Camera", frame)
+#         cv2.imshow("Live Visitor Check-in Camera", frame)
 #         if cv2.waitKey(1) & 0xFF == 27:
 #             print("🛑 ESC pressed, exiting loop.")
 #             break
@@ -415,14 +415,14 @@
 #             continue
 #     return None, None
 
-# # ✅ Main Attendance Loop
+# # ✅ Main Visitor Check-in Loop
 # def attendance_loop():
 #     cap = cv2.VideoCapture(0)
 #     if not cap.isOpened():
 #         print("❌ Webcam not accessible.")
 #         return
 
-#     print("🎯 Starting attendance monitor...")
+#     print("🎯 Starting visitor check-in monitor...")
 #     last_seen = {}
 #     last_face_time = time()
 #     last_no_face_log_time = time()
@@ -581,14 +581,14 @@ def recognize_face(frame):
             continue
     return None, None
 
-# ✅ Main Attendance Loop
+# ✅ Main Visitor Check-in Loop
 def attendance_loop():
     cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("❌ Webcam not accessible.")
         return
 
-    print("🎯 Starting attendance monitor...")
+    print("🎯 Starting visitor check-in monitor...")
     last_seen = {}
     last_face_time = time()
     last_no_face_log_time = time()
@@ -598,7 +598,7 @@ def attendance_loop():
         if not ret:
             break
 
-        cv2.imshow("Live Attendance", frame)
+        cv2.imshow("Live Visitor Check-in", frame)
         if cv2.waitKey(1) & 0xFF == 27:
             print("🛑 ESC pressed. Exiting.")
             break

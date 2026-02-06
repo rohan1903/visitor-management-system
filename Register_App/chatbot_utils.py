@@ -91,11 +91,11 @@ def respond_by_intent(intent, message):
     elif intent == "complaints":
         return handle_issue_logging(message)
     elif intent == "company_info":
-        return "📢 CBRE is a global real estate firm. Visit: https://www.cbre.com/about"
+        return "📢 Welcome to our Visitor Management System. Contact the admin desk for more information."
     elif intent == "feedback":
         return handle_feedback(message)
     elif intent == "headquarters":
-        return "📍 CBRE HQ: 400 S Hope St, Los Angeles\n[View on Google Maps](https://goo.gl/maps/nEBED3nAEm32)"
+        return "📍 Please contact the reception desk for directions to specific departments or offices."
     else:
         return get_gemini_response(message)
 
