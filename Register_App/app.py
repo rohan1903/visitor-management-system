@@ -2,10 +2,13 @@ import os
 import cv2
 import base64
 import numpy as np
+import secrets
+import json
+from io import BytesIO
 from flask import Flask, render_template, request, jsonify, redirect, session, url_for
 import firebase_admin
 from firebase_admin import credentials, db
-from datetime import datetime
+from datetime import datetime, timedelta
 from time import time
 import dlib
 from dotenv import load_dotenv
@@ -16,6 +19,11 @@ import logging
 from flask import send_from_directory
 import random
 from werkzeug.utils import secure_filename
+
+try:
+    import qrcode as qrcode_lib
+except ImportError:
+    qrcode_lib = None
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG)
@@ -286,6 +294,88 @@ def send_custom_email(recipient_email, subject, body):
         logger.error(f"General Email error during custom send: {e}")
         return False
 
+# ──────────────────────────────────────────────
+# QR Code Generation Helpers
+# ──────────────────────────────────────────────
+QR_EXPIRY_HOURS = 36  # QR valid for visit_date + 36 h
+
+def _generate_qr_token():
+    """Generate a cryptographically-secure QR token."""
+    return secrets.token_urlsafe(32)
+
+def _generate_qr_payload(visitor_id, visit_id, visit_date, token):
+    """Create the compact JSON payload for the QR code."""
+    try:
+        date_obj = datetime.strptime(str(visit_date), "%Y-%m-%d")
+        expiry = date_obj + timedelta(hours=QR_EXPIRY_HOURS)
+    except (ValueError, TypeError):
+        expiry = datetime.now() + timedelta(hours=QR_EXPIRY_HOURS)
+
+    return json.dumps({
+        "v": str(visitor_id),
+        "i": str(visit_id),
+        "k": str(token),
+        "e": expiry.strftime("%Y-%m-%d %H:%M:%S"),
+    }, separators=(",", ":"))
+
+def _generate_qr_image_base64(payload_string):
+    """Generate QR code image and return as data-URI base64 string."""
+    if qrcode_lib is None:
+        logger.error("qrcode library not installed – cannot generate QR image")
+        return None
+    try:
+        qr = qrcode_lib.QRCode(
+            version=None,
+            error_correction=qrcode_lib.constants.ERROR_CORRECT_M,
+            box_size=10,
+            border=4,
+        )
+        qr.add_data(payload_string)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+        return f"data:image/png;base64,{b64}"
+    except Exception as exc:
+        logger.error(f"Error generating QR image: {exc}")
+        return None
+
+def _create_qr_for_visit(visitor_id, visit_id, visit_date):
+    """
+    Generate QR token, payload, image, and Firebase data for a visit.
+    Returns (token, payload_string, image_base64, firebase_data_dict).
+    """
+    token = _generate_qr_token()
+    payload_string = _generate_qr_payload(visitor_id, visit_id, visit_date, token)
+    image_base64 = _generate_qr_image_base64(payload_string)
+
+    try:
+        date_obj = datetime.strptime(str(visit_date), "%Y-%m-%d")
+        expiry = date_obj + timedelta(hours=QR_EXPIRY_HOURS)
+    except (ValueError, TypeError):
+        expiry = datetime.now() + timedelta(hours=QR_EXPIRY_HOURS)
+
+    firebase_data = {
+        "qr_token": token,
+        "qr_payload": payload_string,
+        "qr_expires_at": expiry.strftime("%Y-%m-%d %H:%M:%S"),
+        "qr_max_scans": 2,
+        "qr_created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "qr_state": {
+            "status": "UNUSED",
+            "scan_count": 0,
+            "checkin_scan_time": None,
+            "checkout_scan_time": None,
+            "auth_method": None,
+            "invalidated_at": None,
+            "invalidated_reason": None,
+        },
+    }
+    return token, payload_string, image_base64, firebase_data
+
+
 # --- Routes ---
 @app.route('/')
 def index():
@@ -470,6 +560,19 @@ def finalize_registration():
         db_ref.child(f"visitors/{visitor_id}/visits/{visit_id}").set(visit_data)
         logger.info(f"✅ NEW VISIT CREATED under visitor {visitor_id} - Status: {initial_status}")
 
+        # ✅ GENERATE QR CODE for this visit
+        effective_visit_date = visit_date if visit_date else datetime.now().strftime('%Y-%m-%d')
+        try:
+            qr_token, qr_payload, qr_image, qr_firebase = _create_qr_for_visit(
+                visitor_id, visit_id, effective_visit_date
+            )
+            # Merge QR data into the visit record
+            db_ref.child(f"visitors/{visitor_id}/visits/{visit_id}").update(qr_firebase)
+            logger.info(f"✅ QR code generated for visit {visit_id}")
+        except Exception as qr_exc:
+            logger.error(f"⚠️ QR generation failed (non-fatal): {qr_exc}")
+            qr_image = None
+
         # Update root visitor status based on whether approval is needed
         root_status = "Pending Approval" if requires_employee_approval else "Registered"
         db_ref.child(f"visitors/{visitor_id}").update({
@@ -585,6 +688,7 @@ def check_in():
         logger.info(f"Found {len(visits)} visits for visitor {visitor_id}")
 
         recent_visit = None
+        qr_image_base64 = None
         if visits:
             # Get the most recent visit (works for both new and returning visitors)
             sorted_visits = sorted(visits.items(), key=lambda x: x[0], reverse=True)
@@ -604,6 +708,15 @@ def check_in():
                     "has_visited": latest_visit_data.get("has_visited", False)
                 }
 
+                # ✅ Regenerate QR image from stored payload
+                stored_payload = latest_visit_data.get("qr_payload")
+                if stored_payload:
+                    try:
+                        qr_image_base64 = _generate_qr_image_base64(stored_payload)
+                    except Exception as qr_exc:
+                        logger.error(f"QR image regen failed: {qr_exc}")
+                        qr_image_base64 = None
+
         # Store visitor_id in session for future use
         session["visitor_id"] = visitor_id
         
@@ -620,7 +733,8 @@ def check_in():
             email_status=email_status,
             email_message=email_message,
             recent_visit=recent_visit,
-            visitor_id=visitor_id
+            visitor_id=visitor_id,
+            qr_image=qr_image_base64
         )
 
     except Exception as e:
@@ -1127,6 +1241,17 @@ def old_register():
         # Store new visit under "visits" node
         visitor_ref.child(f"visits/{visit_id}").set(visit_record)
         logger.info(f"New visit added under returning visitor {visitor_id}")
+
+        # ✅ GENERATE QR CODE for returning visitor's new visit
+        rv_visit_date = visit_date if visit_date else datetime.now().strftime('%Y-%m-%d')
+        try:
+            qr_token, qr_payload, qr_img, qr_fb = _create_qr_for_visit(
+                visitor_id, visit_id, rv_visit_date
+            )
+            visitor_ref.child(f"visits/{visit_id}").update(qr_fb)
+            logger.info(f"✅ QR code generated for returning visitor visit {visit_id}")
+        except Exception as qr_exc:
+            logger.error(f"⚠️ QR generation failed for returning visitor (non-fatal): {qr_exc}")
 
         session["current_visit_id"] = visit_id
 

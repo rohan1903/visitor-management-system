@@ -5,8 +5,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VMS - Check-In/Out Gate</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- jsQR — lightweight QR decoder that works on canvas ImageData -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+
         .camera-container {
             width: 100%;
             max-width: 480px;
@@ -31,185 +34,335 @@
             border-radius: 8px;
             padding: 10px;
         }
-        .message-success { background-color: #d1fae5; color: #065f46; border: 2px solid #34d399; }
-        .message-error { background-color: #fee2e2; color: #991b1b; border: 2px solid #f87171; }
-        .message-waiting { background-color: #eff6ff; color: #1e40af; border: 2px solid #60a5fa; }
+        .message-success  { background-color: #d1fae5; color: #065f46; border: 2px solid #34d399; }
+        .message-error    { background-color: #fee2e2; color: #991b1b; border: 2px solid #f87171; }
+        .message-waiting  { background-color: #eff6ff; color: #1e40af; border: 2px solid #60a5fa; }
+        .message-checkout { background-color: #fef3c7; color: #92400e; border: 2px solid #fbbf24; }
 
+        /* scanning line animation */
         @keyframes scan {
-            0% { top: 0; }
-            50% { top: 95%; }
+            0%   { top: 0; }
+            50%  { top: 95%; }
             100% { top: 0; }
         }
         .scanning-line {
             position: absolute;
-            left: 5%;
-            width: 90%;
-            height: 3px;
+            left: 5%; width: 90%; height: 3px;
             background: linear-gradient(90deg, transparent, #0d6efd, transparent);
             animation: scan 3s infinite linear;
             box-shadow: 0 0 10px #0d6efd;
         }
+
+        /* QR status badge */
+        .qr-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        .qr-badge.waiting  { background: #fef3c7; color: #92400e; }
+        .qr-badge.detected { background: #d1fae5; color: #065f46; }
+
+        /* Pulse animation for QR detected */
+        @keyframes pulse-green {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5); }
+            50%      { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+        }
+        .qr-badge.detected { animation: pulse-green 1.5s ease-in-out 3; }
     </style>
 </head>
 <body class="p-4 md:p-8">
     <div class="container mx-auto max-w-xl text-center">
-        <h1 class="text-4xl font-extrabold text-gray-800 mb-6">
-            <span class="text-blue-600">Visitor Management System</span> Gate
-        </h1>
-        <p class="text-gray-600 mb-8">Please look directly into the camera for Check-In or Check-Out.</p>
 
-        <div id="message-box" class="message-waiting mb-6 transition duration-300">
-            Scanning for visitor...
+        <!-- Header -->
+        <h1 class="text-4xl font-extrabold text-gray-800 mb-2">
+            <span class="text-blue-600">Visitor Management</span> Gate
+        </h1>
+        <p class="text-gray-500 mb-4 text-sm">
+            Dual-authentication: <strong>QR Code</strong> + <strong>Face Recognition</strong>
+        </p>
+
+        <!-- QR Status Indicator -->
+        <div class="mb-4 flex justify-center gap-3 flex-wrap">
+            <span id="qr-status" class="qr-badge waiting">
+                <svg id="qr-icon-waiting" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="M12 4v1m6 11h1m-15 0H4m12.364-6.364l.707-.707M6.343 6.343l-.707-.707
+                             M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+                </svg>
+                <svg id="qr-icon-ok" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 hidden" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                </svg>
+                <span id="qr-status-text">Waiting for QR scan…</span>
+            </span>
+
+            <button id="btn-clear-qr" class="hidden text-xs text-red-500 underline hover:text-red-700"
+                    onclick="clearQR()">
+                Clear QR
+            </button>
+
+            <button id="btn-skip-qr" class="text-xs text-gray-500 underline hover:text-gray-700"
+                    onclick="skipQR()">
+                No QR? Use face only
+            </button>
         </div>
 
+        <!-- Main Message Box -->
+        <div id="message-box" class="message-waiting mb-6 transition duration-300">
+            Hold your <strong>QR code</strong> up to the camera, then show your <strong>face</strong>.
+        </div>
+
+        <!-- Camera Feed -->
         <div class="camera-container">
             <video id="video-feed" autoplay playsinline></video>
             <canvas id="photo-canvas" style="display: none;"></canvas>
             <div class="scanning-line"></div>
         </div>
 
-        <p class="text-xs text-gray-400 mt-4">System is secured to Kiosk IP Address: ({{ COMPANY_IP }})</p>
+        <p class="text-xs text-gray-400 mt-4">
+            System is secured to Kiosk IP Address.
+            The camera scans for both QR codes and faces automatically.
+        </p>
     </div>
 
+    <!-- ─────────────────────────────────────────────────── -->
+    <!-- JavaScript: Camera · QR detection · Face verify     -->
+    <!-- ─────────────────────────────────────────────────── -->
     <script>
-        const video = document.getElementById('video-feed');
-        const canvas = document.getElementById('photo-canvas');
-        const context = canvas.getContext('2d');
+        // ── DOM refs ──
+        const video      = document.getElementById('video-feed');
+        const canvas     = document.getElementById('photo-canvas');
+        const context    = canvas.getContext('2d');
         const messageBox = document.getElementById('message-box');
-        let intervalId;
-        let isProcessing = false;
 
-        // --- Camera Setup ---
+        const qrStatus     = document.getElementById('qr-status');
+        const qrStatusText = document.getElementById('qr-status-text');
+        const qrIconWait   = document.getElementById('qr-icon-waiting');
+        const qrIconOk     = document.getElementById('qr-icon-ok');
+        const btnClearQr   = document.getElementById('btn-clear-qr');
+        const btnSkipQr    = document.getElementById('btn-skip-qr');
+
+        // ── State ──
+        let scannedQrData  = null;   // raw QR string (or null)
+        let qrSkipped      = false;  // user chose face-only
+        let isProcessing   = false;
+        let intervalId     = null;
+        let lastSpokenMsg  = '';
+
+        // ──────────────────
+        // Camera Setup
+        // ──────────────────
         async function setupCamera() {
             try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+                });
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
                     video.play();
-                    canvas.width = video.videoWidth;
+                    canvas.width  = video.videoWidth;
                     canvas.height = video.videoHeight;
-                    startVerificationLoop();
+                    startLoop();
                 };
             } catch (err) {
-                console.error("Error accessing camera:", err);
-                messageBox.className = 'message-error mb-6';
-                messageBox.textContent = "❌ ERROR: Could not access camera. Please check permissions.";
-                speakMessage("Error. Could not access camera. Please check permissions.");
+                console.error('Camera error:', err);
+                showMessage('error', '❌ Cannot access camera. Check permissions.');
+                speakMessage('Error. Cannot access camera.');
             }
         }
 
-        // --- Capture and Verify ---
+        // ──────────────────
+        // QR Detection (jsQR from webcam frames)
+        // ──────────────────
+        function tryDetectQR() {
+            if (scannedQrData || qrSkipped) return; // already have QR or skipped
+            if (video.videoWidth === 0) return;
+
+            // Draw un-mirrored frame for QR detection
+            context.save();
+            context.clearRect(0, 0, canvas.width, canvas.height);
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            context.restore();
+
+            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+            const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'dontInvert'
+            });
+
+            if (code && code.data) {
+                try {
+                    // Quick sanity: must be JSON with required keys
+                    const parsed = JSON.parse(code.data);
+                    if (parsed.v && parsed.i && parsed.k && parsed.e) {
+                        scannedQrData = code.data;
+                        onQrDetected();
+                    }
+                } catch (_) {
+                    // Not our QR format — ignore
+                }
+            }
+        }
+
+        function onQrDetected() {
+            qrStatus.classList.remove('waiting');
+            qrStatus.classList.add('detected');
+            qrIconWait.classList.add('hidden');
+            qrIconOk.classList.remove('hidden');
+            qrStatusText.textContent = 'QR Detected ✓';
+            btnClearQr.classList.remove('hidden');
+            btnSkipQr.classList.add('hidden');
+            showMessage('waiting', '✅ QR scanned! Now look at the camera for face verification.');
+            speakMessage('QR code scanned. Now look at the camera for face verification.');
+        }
+
+        function clearQR() {
+            scannedQrData = null;
+            qrSkipped     = false;
+            qrStatus.classList.remove('detected');
+            qrStatus.classList.add('waiting');
+            qrIconWait.classList.remove('hidden');
+            qrIconOk.classList.add('hidden');
+            qrStatusText.textContent = 'Waiting for QR scan…';
+            btnClearQr.classList.add('hidden');
+            btnSkipQr.classList.remove('hidden');
+            showMessage('waiting', 'Hold your <strong>QR code</strong> up to the camera, then show your <strong>face</strong>.');
+        }
+
+        function skipQR() {
+            qrSkipped = true;
+            qrStatus.classList.remove('waiting');
+            qrStatus.classList.add('detected');
+            qrIconWait.classList.add('hidden');
+            qrIconOk.classList.remove('hidden');
+            qrStatusText.textContent = 'Face-only mode';
+            btnClearQr.classList.remove('hidden');
+            btnSkipQr.classList.add('hidden');
+            showMessage('waiting', 'Face-only mode. Look at the camera for verification.');
+            speakMessage('Face only mode. Look at the camera for verification.');
+        }
+
+        // ──────────────────
+        // Face Capture & Combined Verify
+        // ──────────────────
         function captureAndVerify() {
             if (isProcessing) return;
             if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
+            // If we haven't got QR yet and haven't skipped, just try QR detection
+            if (!scannedQrData && !qrSkipped) {
+                tryDetectQR();
+                return;
+            }
+
             isProcessing = true;
+
+            // Draw mirrored frame for face capture (matches how user sees themselves)
             context.clearRect(0, 0, canvas.width, canvas.height);
+            context.save();
             context.translate(canvas.width, 0);
             context.scale(-1, 1);
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
-            context.setTransform(1, 0, 0, 1, 0, 0);
+            context.restore();
 
             const dataURL = canvas.toDataURL('image/jpeg', 0.8);
-            
+
+            // Build payload
+            const payload = { image: dataURL };
+            if (scannedQrData) {
+                payload.qr_data = scannedQrData;
+            }
+
             fetch('/checkin_verify_and_log', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: dataURL }),
+                body: JSON.stringify(payload),
             })
-            .then(response => response.json())
+            .then(r => r.json())
             .then(data => {
                 isProcessing = false;
-
-                if (data.status === 'granted') {
-                    messageBox.className = 'message-success mb-6 transition duration-300';
-                    messageBox.innerHTML = `✅ ${data.message}`;
-                    speakMessage(data.message); // 🔊 Speak success message
-                    clearInterval(intervalId);
-                    setTimeout(() => {
-                        window.location.href = data.redirect_url;
-                    }, 1500);
-                } 
-                else if (data.status === 'denied' || data.status === 'error') {
-                    messageBox.className = 'message-error mb-6 transition duration-300';
-                    messageBox.innerHTML = `${data.message}`;
-                    speakMessage(data.message); // 🔊 Speak denied/error message
-                } 
-                else if (data.status === 'waiting') {
-                    messageBox.className = 'message-waiting mb-6 transition duration-300';
-                    messageBox.textContent = data.message;
-                }
+                handleResponse(data);
             })
-            .catch(error => {
+            .catch(err => {
                 isProcessing = false;
-                console.error('Network or Server Error:', error);
-                messageBox.className = 'message-error mb-6 transition duration-300';
-                messageBox.textContent = "❌ Network Error. Cannot connect to verification server.";
-                speakMessage("Network error. Cannot connect to verification server.");
+                console.error('Network error:', err);
+                showMessage('error', '❌ Network Error. Cannot connect to server.');
+                speakOnce('Network error. Cannot connect to server.');
             });
         }
-        // Add this to your checkin_gate.html JavaScript
-        async function sendFrameToServer(imageData) {
-            try {
-                const response = await fetch('/checkin_verify_and_log', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ image: imageData })
-                });
-                
-                const data = await response.json();
-                console.log("SERVER RESPONSE:", data);
-                
-                // FORCE CHECKOUT MESSAGE DISPLAY
-                if (data.status === 'checked_out') {
-                    console.log("✅ CHECKOUT SUCCESS - Redirecting to success page");
-                    
-                    // Stop camera
-                    if (window.stream) {
-                        window.stream.getTracks().forEach(track => track.stop());
-                    }
-                    
-                    // Redirect to success page
-                    setTimeout(() => {
-                        window.location.href = data.redirect_url || '/checkin_success?name=' + encodeURIComponent(data.name) + '&action=checked out';
-                    }, 1000);
-                    return;
-                }
-                
-                // Handle other statuses
-                if (data.redirect_url) {
-                    setTimeout(() => {
-                        window.location.href = data.redirect_url;
-                    }, 2000);
-                }
-                
-            } catch (error) {
-                console.error('Error:', error);
+
+        // ──────────────────
+        // Response Handler
+        // ──────────────────
+        function handleResponse(data) {
+            if (data.status === 'granted') {
+                showMessage('success', `✅ ${data.message}`);
+                speakMessage(data.message);
+                stopLoop();
+                setTimeout(() => { window.location.href = data.redirect_url; }, 1500);
             }
-        }
-        // --- Speech Synthesis (Audio Output) ---
-        function speakMessage(message) {
-            if ('speechSynthesis' in window) {
-                const utterance = new SpeechSynthesisUtterance(message);
-                utterance.lang = 'en-US';
-                utterance.pitch = 1;
-                utterance.rate = 1;
-                utterance.volume = 1;
-                window.speechSynthesis.cancel(); // Stop any ongoing speech
-                window.speechSynthesis.speak(utterance);
-            } else {
-                console.warn("Speech Synthesis not supported in this browser.");
+            else if (data.status === 'checked_out') {
+                showMessage('checkout', `✅ ${data.message}`);
+                speakMessage(data.message);
+                stopLoop();
+                setTimeout(() => {
+                    window.location.href = data.redirect_url ||
+                        `/checkin_success?name=${encodeURIComponent(data.name)}&action=checked%20out`;
+                }, 1500);
+            }
+            else if (data.status === 'denied' || data.status === 'error') {
+                showMessage('error', data.message);
+                speakOnce(data.message);
+            }
+            else if (data.status === 'waiting') {
+                showMessage('waiting', data.message);
             }
         }
 
-        // --- Control Loop ---
-        function startVerificationLoop() {
-            intervalId = setInterval(captureAndVerify, 500); 
+        // ──────────────────
+        // UI Helpers
+        // ──────────────────
+        function showMessage(type, html) {
+            const classes = {
+                success:  'message-success',
+                error:    'message-error',
+                waiting:  'message-waiting',
+                checkout: 'message-checkout',
+            };
+            messageBox.className = `${classes[type] || 'message-waiting'} mb-6 transition duration-300`;
+            messageBox.innerHTML = html;
         }
 
-        // Initialize camera
+        function speakMessage(text) {
+            if (!('speechSynthesis' in window)) return;
+            const u = new SpeechSynthesisUtterance(text);
+            u.lang = 'en-US'; u.pitch = 1; u.rate = 1; u.volume = 1;
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.speak(u);
+            lastSpokenMsg = text;
+        }
+
+        /** Speak only if message differs from last spoken (avoids repeating denials). */
+        function speakOnce(text) {
+            if (text !== lastSpokenMsg) speakMessage(text);
+        }
+
+        // ──────────────────
+        // Loop Control
+        // ──────────────────
+        function startLoop() {
+            intervalId = setInterval(captureAndVerify, 600);
+        }
+        function stopLoop() {
+            if (intervalId) { clearInterval(intervalId); intervalId = null; }
+        }
+
+        // ── Init ──
         window.onload = setupCamera;
     </script>
 </body>

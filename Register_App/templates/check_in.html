@@ -553,19 +553,69 @@
                 </div>
                 {% endif %}
 
+                <!-- ✅ QR Code Section -->
+                {% if qr_image %}
+                <div class="bg-gradient-to-br from-indigo-50 to-blue-50 rounded-2xl border-2 border-indigo-200 p-6 mb-6">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-qrcode text-indigo-600"></i>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-indigo-800">Your Gate Pass QR Code</h3>
+                            <p class="text-indigo-600 text-xs">Required for check-in at the gate</p>
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-xl p-4 flex flex-col items-center shadow-inner">
+                        <img id="qr-code-img" src="{{ qr_image }}" alt="Gate Pass QR Code"
+                             class="w-48 h-48 mb-3 border-2 border-gray-200 rounded-lg">
+                        <p class="text-sm text-gray-600 font-medium mb-1">Scan this at the gate kiosk</p>
+                        <p class="text-xs text-gray-400">Max 2 scans allowed (check-in + checkout)</p>
+                    </div>
+
+                    <div class="mt-4 grid grid-cols-2 gap-3">
+                        <button onclick="downloadQR()"
+                                class="flex items-center justify-center space-x-2 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-lg text-sm font-semibold transition-all shadow-md">
+                            <i class="fas fa-download"></i>
+                            <span>Save QR</span>
+                        </button>
+                        <button onclick="screenshotQR()"
+                                class="flex items-center justify-center space-x-2 bg-white hover:bg-gray-50 text-indigo-700 border-2 border-indigo-300 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all">
+                            <i class="fas fa-copy"></i>
+                            <span>Copy QR</span>
+                        </button>
+                    </div>
+
+                    <div class="mt-3 bg-red-50 border border-red-200 rounded-lg p-3">
+                        <div class="flex items-start space-x-2">
+                            <i class="fas fa-shield-alt text-red-500 mt-0.5"></i>
+                            <p class="text-xs text-red-700">
+                                <strong>Security:</strong> Do not share this QR with anyone.
+                                It is tied to your identity and will be verified with face recognition at the gate.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
                 <!-- Instructions -->
                 <div class="warning-box rounded-2xl p-4 mb-6">
                     <div class="flex items-center space-x-3">
                         <i class="fas fa-exclamation-triangle text-orange-600 text-xl"></i>
                         <div>
                             <h3 class="font-semibold text-orange-800">Important Notice</h3>
-                            <p class="text-orange-700">Please proceed to the physical access gate for facial verification</p>
+                            <p class="text-orange-700">
+                                {% if qr_image %}
+                                    Save your QR code, then proceed to the gate for QR scan + facial verification.
+                                {% else %}
+                                    Please proceed to the physical access gate for facial verification.
+                                {% endif %}
+                            </p>
                         </div>
                     </div>
                 </div>
 
                 <!-- Action Buttons -->
-                
                     
                     <a href="/" 
                        class="flex items-center justify-center space-x-3 bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl">
@@ -600,6 +650,34 @@
                 }, index * 100);
             });
         });
+
+        // ── QR Download / Copy helpers ──
+        function downloadQR() {
+            const img = document.getElementById('qr-code-img');
+            if (!img || !img.src) return;
+            const link = document.createElement('a');
+            link.download = 'gate_pass_qr.png';
+            link.href = img.src;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function screenshotQR() {
+            const img = document.getElementById('qr-code-img');
+            if (!img || !img.src) return;
+            try {
+                const resp = await fetch(img.src);
+                const blob = await resp.blob();
+                await navigator.clipboard.write([
+                    new ClipboardItem({ [blob.type]: blob })
+                ]);
+                alert('QR code copied to clipboard!');
+            } catch (err) {
+                // Fallback: open image in new tab
+                window.open(img.src, '_blank');
+            }
+        }
     </script>
 </body>
 </html>
