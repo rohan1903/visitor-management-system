@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from flask import Flask, render_template, request, jsonify, url_for, session, redirect
 import logging
 import smtplib
+import uuid
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -25,6 +26,7 @@ except ImportError:
 
 # QR Module
 from qr_module import (
+    create_qr_for_visit,
     parse_qr_payload, validate_qr_token, update_qr_state, invalidate_qr,
     log_qr_scan, log_security_alert, find_all_face_matches, detect_twin,
     get_qr_state,
@@ -40,27 +42,183 @@ app.secret_key = os.environ.get("SECRET_KEY", "gate_app_secret_key_123")
 VERIFICATION_THRESHOLD = 0.6 
 COMPANY_IP = os.environ.get("COMPANY_IP")
 
+# Protocol mode: hybrid (default), face_only, qr_only (for research comparison)
+_AUTH_MODE_RAW = os.environ.get("AUTH_MODE", "hybrid").strip().lower()
+if _AUTH_MODE_RAW not in ("hybrid", "face_only", "qr_only"):
+    _AUTH_MODE_RAW = "hybrid"
+AUTH_MODE = _AUTH_MODE_RAW
+
 # --- SMTP Config ---
 SMTP_SERVER = os.environ.get("SMTP_SERVER")
 SMTP_PORT = os.environ.get("SMTP_PORT")
 EMAIL_ADDRESS = os.environ.get("EMAIL_USER")
 EMAIL_PASSWORD = os.environ.get("EMAIL_PASS")
 
-# --- Firebase Initialization ---
-if not firebase_admin._apps:
-    try:
-        cred = credentials.Certificate("firebase_credentials.json")
-        firebase_admin.initialize_app(cred, {
-            'databaseURL': 'https://v-guard-af8af-default-rtdb.firebaseio.com/'
-        })
-        print("✅ Firebase initialized successfully.")
-    except Exception as e:
-        print(f"❌ Error initializing Firebase: {e}. Check firebase_credentials.json.")
+# --- Data source mode ---
+USE_MOCK_DATA = os.environ.get("USE_MOCK_DATA", "False").lower() == "true"
 
 # Logger and db reference
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-db_ref = db.reference()
+
+
+class InMemoryDBRef:
+    """Small Firebase-like reference wrapper for local no-cloud demos."""
+    def __init__(self, root_data, path=()):
+        self._root = root_data
+        self._path = tuple(path)
+
+    def child(self, path):
+        parts = [p for p in str(path).split("/") if p]
+        return InMemoryDBRef(self._root, self._path + tuple(parts))
+
+    def _resolve(self, create=False):
+        node = self._root
+        for key in self._path:
+            if key not in node:
+                if not create:
+                    return None
+                node[key] = {}
+            if not isinstance(node[key], dict):
+                if create:
+                    node[key] = {}
+                else:
+                    return None
+            node = node[key]
+        return node
+
+    def get(self):
+        if not self._path:
+            return self._root
+        node = self._root
+        for key in self._path:
+            if not isinstance(node, dict) or key not in node:
+                return None
+            node = node[key]
+        return node
+
+    def set(self, value):
+        if not self._path:
+            if isinstance(value, dict):
+                self._root.clear()
+                self._root.update(value)
+            return
+        parent = self._root
+        for key in self._path[:-1]:
+            parent = parent.setdefault(key, {})
+        parent[self._path[-1]] = value
+
+    def update(self, updates):
+        node = self._resolve(create=True)
+        if not isinstance(node, dict):
+            self.set(dict(updates))
+            return
+        node.update(updates)
+
+    def push(self):
+        key = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f") + "_" + uuid.uuid4().hex[:6]
+        node = self._resolve(create=True)
+        if not isinstance(node, dict):
+            self.set({})
+            node = self._resolve(create=True)
+        node[key] = {}
+        return self.child(key)
+
+
+def _mock_embedding(seed):
+    rng = np.random.default_rng(seed)
+    vec = rng.normal(0, 1, 128)
+    vec = vec / np.linalg.norm(vec)
+    return " ".join(f"{v:.6f}" for v in vec.tolist())
+
+
+def build_mock_gate_data():
+    today = datetime.now().strftime("%Y-%m-%d")
+    mock_visitors = {}
+    demo_people = [
+        ("visitor_demo_1", "Aarav Sharma", "aarav.demo@example.com"),
+        ("visitor_demo_2", "Diya Mehta", "diya.demo@example.com"),
+    ]
+    for idx, (visitor_id, name, email) in enumerate(demo_people, start=1):
+        visit_id = f"visit_demo_{idx}"
+        token, payload, _image_b64, qr_firebase = create_qr_for_visit(visitor_id, visit_id, today)
+        mock_visitors[visitor_id] = {
+            "basic_info": {
+                "name": name,
+                "contact": email,
+                "blacklisted": "no",
+                "embedding": _mock_embedding(idx),
+            },
+            "status": "Registered",
+            "visits": {
+                visit_id: {
+                    "visit_id": visit_id,
+                    "purpose": "Demo visit",
+                    "employee_name": "Demo Host",
+                    "duration": "1 hour",
+                    "visit_date": today,
+                    "status": "registered",
+                    "visit_approved": True,
+                    "has_visited": False,
+                    "check_in_time": None,
+                    "check_out_time": None,
+                    **qr_firebase,
+                }
+            },
+            "demo_qr_payload": payload,
+            "demo_qr_token": token,
+        }
+    return {
+        "visitors": mock_visitors,
+        "research_protocol_events": {},
+        "security_alerts": {},
+    }
+
+
+if USE_MOCK_DATA:
+    print("💡 Webcam running in USE_MOCK_DATA=True mode (in-memory demo data).")
+    db_ref = InMemoryDBRef(build_mock_gate_data())
+else:
+    if not firebase_admin._apps:
+        try:
+            cred = credentials.Certificate("firebase_credentials.json")
+            firebase_admin.initialize_app(cred, {
+                'databaseURL': 'https://v-guard-af8af-default-rtdb.firebaseio.com/'
+            })
+            print("✅ Firebase initialized successfully.")
+        except Exception as e:
+            print(f"❌ Error initializing Firebase: {e}. Check firebase_credentials.json.")
+    db_ref = db.reference()
+
+
+def db_reference(path=None):
+    if USE_MOCK_DATA:
+        return db_ref.child(path) if path else db_ref
+    return db.reference(path) if path else db.reference()
+
+
+def log_protocol_event(event_type, auth_mode, visitor_id=None, visit_id=None, **extra):
+    """Log protocol events for research/metrics export (arrival, departure, invalidation)."""
+    try:
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        key = datetime.now().strftime("%Y-%m-%d_%H-%M-%S_%f")
+        entry = {
+            "event": event_type,
+            "auth_mode": auth_mode,
+            "protocol_config": AUTH_MODE,
+            "timestamp": now_str,
+        }
+        if visitor_id is not None:
+            entry["visitor_id"] = str(visitor_id)
+        if visit_id is not None:
+            entry["visit_id"] = str(visit_id)
+        entry.update(extra)
+        db_ref.child("research_protocol_events").child(key).set(entry)
+        return True
+    except Exception as exc:
+        logger.error(f"Error logging protocol event: {exc}")
+        return False
+
 
 # --- Helper Functions ---
 
@@ -105,7 +263,7 @@ def verify_by_distance(live_embedding):
     """
     Compares a live embedding against ALL stored embeddings in Firebase.
     """
-    visitors_ref = db.reference("visitors")
+    visitors_ref = db_reference("visitors")
     all_visitors = visitors_ref.get()
     if not all_visitors:
         return None, 999.0
@@ -278,7 +436,7 @@ def simulate_send_email(recipient_email, subject, body):
 
 def check_for_expiring_visits():
     """Checks for visitors about to expire (30 minutes remaining) and simulates sending email."""
-    visitors_ref = db.reference("visitors")
+    visitors_ref = db_reference("visitors")
     all_visitors = visitors_ref.get()
     if not all_visitors: return "No visitors found."
 
@@ -322,6 +480,150 @@ def checkin_gate():
     """The main interface for automatic check-in/check-out."""
     return render_template("checkin_gate.html")
 
+
+@app.route("/mock_demo_data")
+def mock_demo_data():
+    """Return mock visitor+QR payloads for no-camera local testing."""
+    if not USE_MOCK_DATA:
+        return jsonify({"status": "error", "message": "Enable USE_MOCK_DATA=True to access demo data."}), 400
+
+    visitors = db_ref.child("visitors").get() or {}
+    demo_records = []
+    for visitor_id, visitor_data in visitors.items():
+        basic = visitor_data.get("basic_info", {})
+        visits = visitor_data.get("visits", {})
+        if not visits:
+            continue
+        latest_visit_id = max(visits.keys())
+        latest_visit = visits.get(latest_visit_id, {})
+        demo_records.append({
+            "visitor_id": visitor_id,
+            "mock_face_id": visitor_id,
+            "name": basic.get("name", "Visitor"),
+            "visit_id": latest_visit_id,
+            "visit_status": latest_visit.get("status", "registered"),
+            "qr_payload": latest_visit.get("qr_payload"),
+            "qr_state": (latest_visit.get("qr_state") or {}).get("status", "UNUSED"),
+        })
+
+    return jsonify({
+        "status": "success",
+        "auth_mode": AUTH_MODE,
+        "use_mock_data": USE_MOCK_DATA,
+        "records": demo_records,
+        "usage": {
+            "endpoint": "/mock_auth",
+            "payload_example": {
+                "mock_face_id": "visitor_demo_1",
+                "qr_data": "{...optional qr payload...}"
+            }
+        }
+    })
+
+
+@app.route("/mock_auth", methods=["POST"])
+def mock_auth():
+    """No-camera auth endpoint for demoing QR + face logic with mock identities."""
+    if not USE_MOCK_DATA:
+        return jsonify({"status": "error", "message": "Enable USE_MOCK_DATA=True to use mock_auth."}), 400
+
+    data = request.get_json() or {}
+    mock_face_id = str(data.get("mock_face_id", "")).strip()
+    raw_qr = data.get("qr_data")
+
+    if not mock_face_id:
+        return jsonify({"status": "denied", "message": "mock_face_id is required.", "distance": 999.0}), 400
+
+    client_ip = request.remote_addr
+    if COMPANY_IP and client_ip not in [COMPANY_IP, "127.0.0.1", "::1"]:
+        return jsonify({"status": "denied", "message": "Access denied: Unauthorized IP.", "distance": 999.0}), 403
+
+    all_visitors = db_ref.child("visitors").get() or {}
+    visitor_data = all_visitors.get(mock_face_id)
+    if not visitor_data:
+        return jsonify({"status": "denied", "message": f"Unknown mock_face_id: {mock_face_id}", "distance": 999.0}), 404
+
+    qr_valid = False
+    qr_visitor_id = None
+    qr_visit_id = None
+    qr_error_msg = None
+    if raw_qr:
+        qr_parsed, parse_err = parse_qr_payload(raw_qr)
+        if qr_parsed:
+            qr_valid, qr_visitor_id, qr_visit_id, _visit_data, qr_error_msg = validate_qr_token(qr_parsed, db_ref)
+        else:
+            qr_error_msg = parse_err
+        if not qr_valid:
+            return jsonify({
+                "status": "denied",
+                "message": f"QR invalid: {qr_error_msg or 'unknown error'}",
+                "distance": 999.0
+            })
+
+    if AUTH_MODE == "qr_only" and not qr_valid:
+        return jsonify({"status": "denied", "message": "qr_only mode requires a valid qr_data payload.", "distance": 999.0})
+
+    if qr_valid and qr_visitor_id != mock_face_id and AUTH_MODE != "qr_only":
+        log_security_alert("QR_FACE_MISMATCH", db_ref,
+                           qr_visitor_id=qr_visitor_id,
+                           face_visitor_id=mock_face_id,
+                           qr_visit_id=qr_visit_id,
+                           face_distance=0.21,
+                           ip=client_ip,
+                           message="Mock auth detected mismatch between mock_face_id and QR.")
+        log_qr_scan(qr_visitor_id, qr_visit_id, "rejected", db_ref,
+                    reason="mock_face_mismatch", face_visitor_id=mock_face_id, ip=client_ip)
+        invalidate_qr(qr_visitor_id, qr_visit_id, "Mock mismatch detected", db_ref)
+        return jsonify({"status": "denied", "message": "Security alert: mock face does not match QR owner.", "distance": 0.21})
+
+    basic_info = visitor_data.get("basic_info", {})
+    visitor_name = basic_info.get("name", "Visitor")
+    visitor_email = basic_info.get("contact")
+    blacklisted = str(basic_info.get("blacklisted", "no")).lower()
+    if blacklisted in ["yes", "true", "1"]:
+        return jsonify({"status": "denied", "message": f"Access denied. {visitor_name} is blacklisted.", "distance": 0.21})
+
+    visits = visitor_data.get("visits", {})
+    if not visits:
+        return jsonify({"status": "denied", "message": "No visits found for this visitor.", "distance": 0.21})
+
+    if qr_valid:
+        visit_id = qr_visit_id
+        target_visit = visits.get(visit_id) or {}
+    else:
+        visit_id = max(visits.keys())
+        target_visit = visits.get(visit_id) or {}
+
+    visit_status = str(target_visit.get("status", "registered")).lower()
+    purpose = target_visit.get("purpose", "")
+    employee_name = target_visit.get("employee_name")
+    duration = target_visit.get("duration", "1 hour")
+    check_in_time = target_visit.get("check_in_time")
+    has_visited = target_visit.get("has_visited", False)
+
+    has_qr = bool(qr_valid) if AUTH_MODE != "face_only" else False
+    auth_mode = "DUAL_MOCK" if has_qr else "FACE_ONLY_MOCK"
+
+    if visit_status in ["registered", "approved"]:
+        return process_checkin(mock_face_id, visit_id, visitor_name, visitor_email,
+                               employee_name, purpose, duration, 0.21, client_ip,
+                               auth_mode=auth_mode, has_qr=has_qr, auth_mode_config=AUTH_MODE)
+    if visit_status == "checked_in":
+        if has_visited:
+            return jsonify({"status": "denied", "message": "Visit already completed. Register a new visit.", "distance": 0.21})
+        return process_checkout(mock_face_id, visit_id, visitor_name, visitor_email,
+                                check_in_time, duration, 0.21, client_ip,
+                                purpose, employee_name, auth_mode=auth_mode,
+                                has_qr=has_qr, auth_mode_config=AUTH_MODE)
+    if visit_status == "checked_out":
+        return jsonify({"status": "denied", "message": f"No pending visits for {visitor_name}.", "distance": 0.21})
+    if visit_status == "rejected":
+        return jsonify({"status": "denied", "message": "This visit has been rejected.", "distance": 0.21})
+    if visit_status == "rescheduled":
+        return jsonify({"status": "denied", "message": "This visit has been rescheduled.", "distance": 0.21})
+
+    return jsonify({"status": "denied", "message": f"Unsupported visit status: {visit_status}", "distance": 0.21})
+
 @app.route("/checkin_verify_and_log", methods=["POST"])
 def checkin_verify_and_log():
     """
@@ -346,7 +648,7 @@ def checkin_verify_and_log():
             return jsonify({"status": "denied", "message": "Access denied: Unauthorized IP.", "distance": 999.0})
 
         # ──────────────────────────────────────
-        # STEP A: Decode image & get face embedding
+        # Decode image
         # ──────────────────────────────────────
         try:
             captured_base64 = data["image"].split(",")[1]
@@ -358,15 +660,8 @@ def checkin_verify_and_log():
         if cv2_img is None:
             return jsonify({"status": "waiting", "message": "Unable to decode image.", "distance": 999.0})
 
-        live_embedding = get_face_embedding(cv2_img)
-        if live_embedding is None:
-            return jsonify({"status": "waiting", "message": "No face detected. Please position your face clearly.", "distance": 999.0})
-
-        if len(live_embedding) != 128:
-            return jsonify({"status": "waiting", "message": "Face detection failed. Please try again.", "distance": 999.0})
-
         # ──────────────────────────────────────
-        # STEP B: Parse & validate QR (if provided)
+        # STEP B: Parse & validate QR (if provided) — before face for qr_only mode
         # ──────────────────────────────────────
         raw_qr = data.get("qr_data")
         qr_valid = False
@@ -386,7 +681,106 @@ def checkin_verify_and_log():
             if not qr_valid and qr_error_msg:
                 logger.warning(f"QR validation failed: {qr_error_msg}")
 
+        # ──────────────────────────────────────
+        # AUTH_MODE qr_only: authenticate by QR only (no face required)
+        # ──────────────────────────────────────
+        if AUTH_MODE == "qr_only":
+            if not qr_valid:
+                return jsonify({
+                    "status": "denied",
+                    "message": "Please scan your QR code to proceed.",
+                    "distance": 999.0
+                })
+            all_visitors = db_ref.child("visitors").get() or {}
+            visitor_data = all_visitors.get(qr_visitor_id)
+            if not visitor_data:
+                return jsonify({"status": "denied", "message": "Visitor not found.", "distance": 999.0})
+            basic_info = visitor_data.get("basic_info", {})
+            visitor_name = basic_info.get("name", "Visitor")
+            visitor_email = basic_info.get("contact")
+            blacklisted = str(basic_info.get("blacklisted", "no")).lower()
+            if blacklisted in ["yes", "true", "1"]:
+                reason = basic_info.get("blacklist_reason", "Security restriction")
+                invalidate_qr(qr_visitor_id, qr_visit_id, "Visitor is blacklisted", db_ref)
+                log_protocol_event("invalidation", "QR_ONLY", visitor_id=qr_visitor_id, visit_id=qr_visit_id, reason="blacklisted")
+                return jsonify({"status": "denied", "message": f"Access denied. {visitor_name} is blacklisted. Reason: {reason}", "distance": 999.0})
+            visits = visitor_data.get("visits", {})
+            if not visits:
+                return jsonify({"status": "denied", "message": f"No visits found for {visitor_name}. Please register first.", "distance": 999.0})
+            target_visit = visits.get(qr_visit_id)
+            if not target_visit:
+                return jsonify({"status": "denied", "message": "Visit not found.", "distance": 999.0})
+            current_date = datetime.now().strftime("%Y-%m-%d")
+            visit_date = target_visit.get("visit_date")
+            if visit_date and visit_date != current_date:
+                return jsonify({"status": "denied", "message": f"Your visit is scheduled for {visit_date}, not today.", "distance": 999.0})
+            visit_status = target_visit.get("status", "registered")
+            employee_name = target_visit.get("employee_name")
+            has_visited = target_visit.get("has_visited", False)
+            purpose = target_visit.get("purpose", "")
+            check_in_time = target_visit.get("check_in_time")
+            duration = target_visit.get("duration", "1 hour")
+            rejection_reason = target_visit.get("rejection_reason", "")
+            new_visit_date = target_visit.get("new_visit_date", "")
+
+            if visit_status.lower() == "registered":
+                if employee_name and employee_name not in ["N/A", ""]:
+                    return jsonify({"status": "denied", "message": f"Meeting pending approval from {employee_name}. Please wait.", "distance": 999.0})
+                return process_checkin(qr_visitor_id, qr_visit_id, visitor_name, visitor_email,
+                                      employee_name, purpose, duration, 0.0, client_ip,
+                                      auth_mode="QR_ONLY", has_qr=True, auth_mode_config=AUTH_MODE)
+            elif visit_status.lower() == "approved":
+                result = process_checkin(qr_visitor_id, qr_visit_id, visitor_name, visitor_email,
+                                        employee_name, purpose, duration, 0.0, client_ip,
+                                        auth_mode="QR_ONLY", has_qr=True, auth_mode_config=AUTH_MODE)
+                resp = result.get_json()
+                if resp and resp.get("status") == "granted" and employee_name and employee_name not in ["N/A", ""]:
+                    return jsonify({"status": "granted", "name": visitor_name, "message": f"{employee_name} approved {visitor_name}'s visit. Arrival successful.",
+                                    "distance": 0.0, "redirect_url": url_for("checkin_success", name=visitor_name, action="checked in")})
+                return result
+            elif visit_status.lower() == "rejected":
+                msg = "Your visit has been rejected."
+                if employee_name and employee_name not in ["N/A", ""]:
+                    msg = f"{employee_name} has rejected your visit."
+                if rejection_reason:
+                    msg += f" Reason: {rejection_reason}"
+                return jsonify({"status": "denied", "message": msg, "distance": 999.0})
+            elif visit_status.lower() == "rescheduled":
+                reschedule_date = new_visit_date or visit_date
+                msg = f"Your visit has been rescheduled to {reschedule_date}."
+                if employee_name and employee_name not in ["N/A", ""]:
+                    msg = f"{employee_name} rescheduled your visit to {reschedule_date}."
+                return jsonify({"status": "denied", "message": msg, "distance": 999.0})
+            elif visit_status.lower() == "checked_in":
+                if has_visited:
+                    return jsonify({"status": "denied", "message": "Visit already completed. Please register a new visit.", "distance": 999.0})
+                return process_checkout(qr_visitor_id, qr_visit_id, visitor_name, visitor_email,
+                                       check_in_time, duration, 0.0, client_ip,
+                                       purpose, employee_name, auth_mode="QR_ONLY", has_qr=True, auth_mode_config=AUTH_MODE)
+            elif visit_status.lower() == "checked_out":
+                return jsonify({"status": "denied", "message": f"No pending visits for today, {visitor_name}.", "distance": 999.0})
+            elif visit_status.lower() == "exceeded":
+                if visitor_email:
+                    send_exceeded_email(visitor_email, visitor_name)
+                return jsonify({"status": "denied", "message": "Duration exceeded. Please check out immediately.", "distance": 999.0})
+            elif visit_status.lower() == "pending approval":
+                return jsonify({"status": "denied", "message": "Visit pending employee approval. Please wait.", "distance": 999.0})
+            else:
+                return jsonify({"status": "denied", "message": f"Unknown visit status: {visit_status}", "distance": 999.0})
+
+        # ──────────────────────────────────────
+        # STEP A: Face embedding (hybrid or face_only)
+        # ──────────────────────────────────────
+        live_embedding = get_face_embedding(cv2_img)
+        if live_embedding is None:
+            return jsonify({"status": "waiting", "message": "No face detected. Please position your face clearly.", "distance": 999.0})
+
+        if len(live_embedding) != 128:
+            return jsonify({"status": "waiting", "message": "Face detection failed. Please try again.", "distance": 999.0})
+
         has_qr = qr_valid
+        if AUTH_MODE == "face_only":
+            has_qr = False
         auth_mode = "DUAL" if has_qr else "FACE_ONLY"
 
         # ──────────────────────────────────────
@@ -454,6 +848,8 @@ def checkin_verify_and_log():
             # Invalidate the stolen QR
             invalidate_qr(qr_visitor_id, qr_visit_id,
                           "Presented by wrong person (face mismatch)", db_ref)
+            log_protocol_event("invalidation", auth_mode, visitor_id=qr_visitor_id, visit_id=qr_visit_id,
+                               reason="face_mismatch", face_visitor_id=face_visitor_id, ip=client_ip)
 
             return jsonify({
                 "status": "denied",
@@ -478,6 +874,7 @@ def checkin_verify_and_log():
             reason = basic_info.get("blacklist_reason", "Security restriction")
             if has_qr:
                 invalidate_qr(qr_visitor_id, qr_visit_id, "Visitor is blacklisted", db_ref)
+                log_protocol_event("invalidation", auth_mode, visitor_id=qr_visitor_id, visit_id=qr_visit_id, reason="blacklisted")
             return jsonify({
                 "status": "denied",
                 "message": f"Access denied. {visitor_name} is blacklisted. Reason: {reason}",
@@ -546,13 +943,13 @@ def checkin_verify_and_log():
                 })
             return process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
                                   employee_name, purpose, duration, min_distance,
-                                  client_ip, auth_mode, has_qr)
+                                  client_ip, auth_mode, has_qr, auth_mode_config=AUTH_MODE)
 
         # 2. APPROVED
         elif visit_status.lower() == "approved":
             result = process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
                                     employee_name, purpose, duration, min_distance,
-                                    client_ip, auth_mode, has_qr)
+                                    client_ip, auth_mode, has_qr, auth_mode_config=AUTH_MODE)
             resp = result.get_json()
             if resp and resp.get("status") == "granted" and employee_name and employee_name not in ["N/A", ""]:
                 return jsonify({
@@ -591,7 +988,7 @@ def checkin_verify_and_log():
                 })
             return process_checkout(visitor_id, visit_id, visitor_name, visitor_email,
                                    check_in_time, duration, min_distance, client_ip,
-                                   purpose, employee_name, auth_mode, has_qr)
+                                   purpose, employee_name, auth_mode, has_qr, auth_mode_config=AUTH_MODE)
 
         # 6. CHECKED-OUT
         elif visit_status.lower() == "checked_out":
@@ -637,8 +1034,8 @@ def checkin_verify_and_log():
 
 def process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
                     employee_name, purpose, duration, min_distance, client_ip,
-                    auth_mode="FACE_ONLY", has_qr=False):
-    """Process check-in and transition QR state accordingly."""
+                    auth_mode="FACE_ONLY", has_qr=False, auth_mode_config=None):
+    """Process check-in and transition QR state accordingly (skipped when auth_mode_config is face_only)."""
     try:
         now = datetime.now()
 
@@ -650,24 +1047,25 @@ def process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
 
         expected_checkout = now + timedelta(hours=duration_hours)
 
-        # ── Update QR state ──
-        if has_qr:
-            ok, err = update_qr_state(visitor_id, visit_id, QR_CHECKIN_USED, db_ref,
-                                      auth_method="qr_and_face")
-            if not ok:
-                logger.warning(f"QR check-in state update failed: {err}")
-            log_qr_scan(visitor_id, visit_id, "checkin", db_ref,
-                        auth_mode="DUAL", ip=client_ip,
-                        face_distance=round(min_distance, 4))
-        else:
-            # Face-only → assume QR was scanned
-            ok, err = update_qr_state(visitor_id, visit_id, QR_ASSUMED_SCANNED, db_ref,
-                                      auth_method="face_only")
-            if not ok:
-                logger.warning(f"QR assumed-scanned update failed: {err}")
-            log_qr_scan(visitor_id, visit_id, "face_only", db_ref,
-                        auth_mode="FACE_ONLY", ip=client_ip,
-                        face_distance=round(min_distance, 4))
+        # ── Update QR state (skip when protocol mode is face_only) ──
+        if auth_mode_config != "face_only":
+            if has_qr:
+                ok, err = update_qr_state(visitor_id, visit_id, QR_CHECKIN_USED, db_ref,
+                                          auth_method="qr_and_face")
+                if not ok:
+                    logger.warning(f"QR check-in state update failed: {err}")
+                log_qr_scan(visitor_id, visit_id, "checkin", db_ref,
+                            auth_mode="DUAL", ip=client_ip,
+                            face_distance=round(min_distance, 4))
+            else:
+                # Face-only → assume QR was scanned
+                ok, err = update_qr_state(visitor_id, visit_id, QR_ASSUMED_SCANNED, db_ref,
+                                          auth_method="face_only")
+                if not ok:
+                    logger.warning(f"QR assumed-scanned update failed: {err}")
+                log_qr_scan(visitor_id, visit_id, "face_only", db_ref,
+                            auth_mode="FACE_ONLY", ip=client_ip,
+                            face_distance=round(min_distance, 4))
 
         # ── Update visit record ──
         db_ref.child(f"visitors/{visitor_id}/visits/{visit_id}").update({
@@ -702,6 +1100,7 @@ def process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
         if auth_mode == "FACE_ONLY":
             message += " (Face-only mode)"
 
+        log_protocol_event("arrival", auth_mode, visitor_id=visitor_id, visit_id=visit_id, ip=client_ip)
         logger.info(f"✅ Check-in: {visitor_name}, visit={visit_id}, auth={auth_mode}")
         return jsonify({
             "status": "granted",
@@ -727,8 +1126,8 @@ def process_checkin(visitor_id, visit_id, visitor_name, visitor_email,
 def process_checkout(visitor_id, visit_id, visitor_name, visitor_email,
                      check_in_time, duration, min_distance, client_ip,
                      purpose, employee_name,
-                     auth_mode="FACE_ONLY", has_qr=False):
-    """Process check-out, handle QR state transitions, detect stolen QR."""
+                     auth_mode="FACE_ONLY", has_qr=False, auth_mode_config=None):
+    """Process check-out, handle QR state transitions, detect stolen QR (skipped when auth_mode_config is face_only)."""
     try:
         now = datetime.now()
 
@@ -758,43 +1157,46 @@ def process_checkout(visitor_id, visit_id, visitor_name, visitor_email,
 
         final_status = "exceeded" if time_exceeded else "checked_out"
 
-        # ── QR state management for checkout ──
-        qr_state = get_qr_state(visitor_id, visit_id, db_ref)
-        qr_current = qr_state.get("status", QR_UNUSED)
-
         qr_was_invalidated = False
 
-        if has_qr:
-            # Normal checkout with QR
-            ok, err = update_qr_state(visitor_id, visit_id, QR_CHECKOUT_USED, db_ref,
-                                      auth_method="qr_and_face")
-            if not ok:
-                logger.warning(f"QR checkout state update failed: {err}")
-            log_qr_scan(visitor_id, visit_id, "checkout", db_ref,
-                        auth_mode="DUAL", ip=client_ip,
-                        face_distance=round(min_distance, 4))
-        else:
-            # Face-only checkout — stolen-QR detection
-            if qr_current == QR_CHECKIN_USED:
-                # QR was used at check-in but NOT at checkout → might be lost/stolen
-                invalidate_qr(visitor_id, visit_id,
-                              "Face-only checkout after QR check-in — possible lost/stolen QR", db_ref)
-                log_security_alert("QR_POSSIBLY_STOLEN", db_ref,
-                                   visitor_id=visitor_id, visit_id=visit_id,
-                                   message="Visitor checked out via face only; QR was used at check-in but not at checkout",
-                                   ip=client_ip)
-                qr_was_invalidated = True
-                logger.warning(f"⚠️ QR invalidated for {visitor_name} — face-only checkout after QR check-in")
+        # ── QR state management for checkout (skip when protocol mode is face_only) ──
+        if auth_mode_config != "face_only":
+            qr_state = get_qr_state(visitor_id, visit_id, db_ref)
+            qr_current = qr_state.get("status", QR_UNUSED)
 
-            elif qr_current == QR_ASSUMED_SCANNED:
-                # Was already face-only at check-in too — no suspicion, just close it
-                invalidate_qr(visitor_id, visit_id,
-                              "Face-only checkout (QR never physically used)", db_ref)
+            if has_qr:
+                # Normal checkout with QR
+                ok, err = update_qr_state(visitor_id, visit_id, QR_CHECKOUT_USED, db_ref,
+                                          auth_method="qr_and_face")
+                if not ok:
+                    logger.warning(f"QR checkout state update failed: {err}")
+                log_qr_scan(visitor_id, visit_id, "checkout", db_ref,
+                            auth_mode="DUAL", ip=client_ip,
+                            face_distance=round(min_distance, 4))
+            else:
+                # Face-only checkout — stolen-QR detection
+                if qr_current == QR_CHECKIN_USED:
+                    # QR was used at check-in but NOT at checkout → might be lost/stolen
+                    invalidate_qr(visitor_id, visit_id,
+                                  "Face-only checkout after QR check-in — possible lost/stolen QR", db_ref)
+                    log_protocol_event("invalidation", auth_mode, visitor_id=visitor_id, visit_id=visit_id,
+                                       reason="face_only_checkout_after_qr_checkin", ip=client_ip)
+                    log_security_alert("QR_POSSIBLY_STOLEN", db_ref,
+                                       visitor_id=visitor_id, visit_id=visit_id,
+                                       message="Visitor checked out via face only; QR was used at check-in but not at checkout",
+                                       ip=client_ip)
+                    qr_was_invalidated = True
+                    logger.warning(f"⚠️ QR invalidated for {visitor_name} — face-only checkout after QR check-in")
 
-            log_qr_scan(visitor_id, visit_id, "checkout_face_only", db_ref,
-                        auth_mode="FACE_ONLY", ip=client_ip,
-                        face_distance=round(min_distance, 4),
-                        qr_invalidated=qr_was_invalidated)
+                elif qr_current == QR_ASSUMED_SCANNED:
+                    # Was already face-only at check-in too — no suspicion, just close it
+                    invalidate_qr(visitor_id, visit_id,
+                                  "Face-only checkout (QR never physically used)", db_ref)
+
+                log_qr_scan(visitor_id, visit_id, "checkout_face_only", db_ref,
+                            auth_mode="FACE_ONLY", ip=client_ip,
+                            face_distance=round(min_distance, 4),
+                            qr_invalidated=qr_was_invalidated)
 
         # ── Update visit record ──
         db_ref.child(f"visitors/{visitor_id}/visits/{visit_id}").update({
@@ -844,6 +1246,8 @@ def process_checkout(visitor_id, visit_id, visitor_name, visitor_email,
         if qr_was_invalidated:
             message += " | QR invalidated for security."
 
+        log_protocol_event("departure", auth_mode, visitor_id=visitor_id, visit_id=visit_id,
+                           status=final_status, ip=client_ip)
         logger.info(f"✅ Checkout: {visitor_name}, visit={visit_id}, "
                      f"status={final_status}, auth={auth_mode}")
 
@@ -899,7 +1303,7 @@ def submit_feedback():
 
     try:
         # Store feedback under the visitor's ID in Realtime Database with proper structure
-        feedback_ref = db.reference(f'visitors/{visitor_id}/feedbacks')
+        feedback_ref = db_reference(f'visitors/{visitor_id}/feedbacks')
         new_feedback_ref = feedback_ref.push()
         new_feedback_ref.set({
             'text': feedback_text,
@@ -922,7 +1326,7 @@ def submit_feedback():
 @app.route('/employee_action/<visitor_id>')
 def employee_action(visitor_id):
     try:
-        visitor_ref = db.reference(f"visitors/{visitor_id}")
+        visitor_ref = db_reference(f"visitors/{visitor_id}")
         visitor_data = visitor_ref.get()
         
         if not visitor_data:
@@ -953,7 +1357,7 @@ def employee_action_approve(visitor_id):
         data = request.get_json()
         employee_name = data.get('employee_name', 'Employee')
         
-        visitor_ref = db.reference(f"visitors/{visitor_id}")
+        visitor_ref = db_reference(f"visitors/{visitor_id}")
         visitor_data = visitor_ref.get()
         
         if not visitor_data:
@@ -998,6 +1402,8 @@ def employee_action_approve(visitor_id):
 if __name__ == "__main__":
     print("--- GATE APP STARTUP ---")
     print(f"VERIFICATION THRESHOLD: {VERIFICATION_THRESHOLD}")
+    print(f"AUTH_MODE (protocol): {AUTH_MODE} (hybrid | face_only | qr_only)")
+    print(f"USE_MOCK_DATA: {USE_MOCK_DATA}")
     if COMPANY_IP:
         print(f"✅ CHECK-IN IP ENFORCEMENT: {COMPANY_IP}")
     else:

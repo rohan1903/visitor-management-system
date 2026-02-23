@@ -161,6 +161,25 @@ def get_mock_visitors():
     # Generate 40-50 visitors for more variety
     num_visitors = random.randint(40, 50)
     
+    positive_feedback = [
+        "Great check-in experience, very smooth and fast.",
+        "Staff were helpful and the process was efficient.",
+        "Excellent security process, felt safe and welcomed.",
+        "Very good experience overall, minimal waiting time."
+    ]
+    neutral_feedback = [
+        "Process was okay, nothing unusual.",
+        "Average experience, all steps were completed.",
+        "The visit went as expected.",
+        "Everything was standard, no specific comments."
+    ]
+    negative_feedback = [
+        "Long waiting time at reception.",
+        "The process felt confusing at first.",
+        "Had trouble during check-out and needed assistance.",
+        "Could be improved with clearer instructions."
+    ]
+
     for i in range(num_visitors):
         visitor_id = f"visitor_{i+1}"
         
@@ -279,6 +298,29 @@ def get_mock_visitors():
                 'created_at': prev_check_in.strftime('%Y-%m-%d %H:%M:%S')
             }
         
+        # Mock feedback entries for sentiment analysis page
+        feedbacks = {}
+        feedback_count = random.randint(0, 3)
+        for j in range(feedback_count):
+            feedback_id = f"feedback_{j+1}"
+            sentiment_bucket = random.choices(
+                ["positive", "neutral", "negative"],
+                weights=[0.5, 0.3, 0.2]
+            )[0]
+            if sentiment_bucket == "positive":
+                feedback_text = random.choice(positive_feedback)
+            elif sentiment_bucket == "negative":
+                feedback_text = random.choice(negative_feedback)
+            else:
+                feedback_text = random.choice(neutral_feedback)
+
+            feedback_time = base_date - timedelta(days=random.randint(0, 30), hours=random.randint(0, 23))
+            feedbacks[feedback_id] = {
+                "text": feedback_text,
+                "timestamp": feedback_time.strftime('%Y-%m-%d %H:%M:%S'),
+                "visitor_id": visitor_id
+            }
+
         mock_visitors[visitor_id] = {
             'basic_info': {
                 'name': full_name,
@@ -288,7 +330,8 @@ def get_mock_visitors():
                 'blacklist_reason': random.choice(blacklist_reasons) if is_blacklisted else 'No reason provided',
                 'company': random.choice(companies) if random.random() < 0.4 else 'N/A'
             },
-            'visits': visits
+            'visits': visits,
+            'feedbacks': feedbacks
         }
     
     return mock_visitors
@@ -589,6 +632,24 @@ def index():
                             <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
                         </div>
                     </a>
+
+                    <!-- Blacklist Management Card -->
+                    <a href="{{ url_for('blacklist_page') }}" 
+                       class="card-hover bg-white rounded-2xl p-6 shadow-xl border border-gray-100 hover:border-red-200 group w-full max-w-md">
+                        <div class="flex items-center mb-4">
+                            <div class="w-12 h-12 bg-red-100 rounded-xl flex items-center justify-center group-hover:bg-red-500 transition-colors">
+                                <i class="fas fa-ban text-red-600 group-hover:text-white text-xl"></i>
+                            </div>
+                            <div class="ml-4">
+                                <h3 class="text-xl font-semibold text-gray-800">Blacklist Management</h3>
+                                <p class="text-gray-600 text-sm">View and manage blacklisted individuals</p>
+                            </div>
+                        </div>
+                        <div class="flex justify-between items-center text-sm text-gray-500">
+                            <span>View blacklisted visitors, remove from list</span>
+                            <i class="fas fa-arrow-right group-hover:translate-x-1 transition-transform"></i>
+                        </div>
+                    </a>
                 </div>
             </div>
 
@@ -858,9 +919,14 @@ def admin_dashboard():
                         <h1 class="text-2xl font-bold text-gray-900">Visitor Management Analytics</h1>
                         <p class="text-sm text-gray-600">Comprehensive visitor insights with time range filters</p>
                     </div>
-                    <a href="/visitors" class="text-blue-600 hover:text-blue-800 font-medium flex items-center">
-                        <i class="fas fa-users mr-2"></i>View Visitors
-                    </a>
+                    <div class="flex items-center gap-4">
+                        <a href="{{ url_for('blacklist_page') }}" class="text-red-600 hover:text-red-800 font-medium flex items-center">
+                            <i class="fas fa-ban mr-2"></i>Blacklisted
+                        </a>
+                        <a href="/visitors" class="text-blue-600 hover:text-blue-800 font-medium flex items-center">
+                            <i class="fas fa-users mr-2"></i>View Visitors
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -3335,6 +3401,10 @@ def visitors_list():
                     <p class="text-gray-600">Manage and track all visitor activities</p>
                 </div>
                 <div class="flex flex-wrap gap-3">
+                    <a href="{{ url_for('blacklist_page') }}" 
+                       class="bg-white hover:bg-gray-50 text-red-700 font-medium px-4 py-2 rounded-lg border border-red-200 shadow-sm transition flex items-center">
+                        <i class="fas fa-ban mr-2"></i>View blacklisted only
+                    </a>
                     <button onclick="exportToCSV()" 
                             class="bg-white hover:bg-gray-50 text-gray-700 font-medium px-4 py-2 rounded-lg border border-gray-300 shadow-sm transition flex items-center">
                         <i class="fas fa-file-export mr-2"></i>Export CSV
@@ -3712,63 +3782,310 @@ def visitors_list():
                             total_pages=total_pages,
                             showing_start=showing_start,
                             showing_end=showing_end)
+
+
+def _build_visitor_list_from_raw(all_visitors):
+    """Build list of visitor dicts from raw all_visitors (same extraction as visitors_list). Includes email and company for verbose views."""
+    visitors_data = []
+    now = datetime.now()
+    if not all_visitors:
+        return visitors_data
+    for vid, data in all_visitors.items():
+        basic_info = data.get('basic_info', {})
+        visitor_name = basic_info.get('name', 'N/A')
+        visitor_contact = basic_info.get('contact', 'N/A')
+        visitor_email = basic_info.get('email', 'N/A')
+        company = basic_info.get('company', 'N/A')
+        raw_bl = basic_info.get('blacklisted', 'no')
+        blacklisted = raw_bl is True or (isinstance(raw_bl, str) and raw_bl.strip().lower() in ['yes', 'true', '1'])
+        blacklist_reason = basic_info.get('blacklist_reason', 'No reason provided')
+        visits = data.get('visits', {})
+        current_status = 'Registered'
+        check_in_time = None
+        check_out_time = None
+        expected_checkout_time = None
+        purpose = 'N/A'
+        employee_name = 'N/A'
+        visit_date = 'N/A'
+        duration = 'N/A'
+        last_visit_time = None
+        exceeded = False
+        if visits:
+            sorted_visits = []
+            for visit_id, visit_data in visits.items():
+                visit_timestamp = visit_data.get('created_at') or visit_data.get('check_in_time')
+                if visit_timestamp:
+                    try:
+                        visit_dt = datetime.strptime(visit_timestamp, "%Y-%m-%d %H:%M:%S")
+                        sorted_visits.append((visit_dt, visit_id, visit_data))
+                    except ValueError:
+                        continue
+            if sorted_visits:
+                sorted_visits.sort(key=lambda x: x[0], reverse=True)
+                last_visit_time, recent_visit_id, recent_visit_data = sorted_visits[0]
+                status_from_visit = recent_visit_data.get('status', 'Registered')
+                if status_from_visit.lower() in ['checked_out', 'checked-out', 'checked out']:
+                    current_status = 'Checked Out'
+                elif status_from_visit.lower() in ['checked_in', 'checked-in', 'checked in']:
+                    current_status = 'Checked In'
+                    check_in_time = recent_visit_data.get('check_in_time')
+                    expected_checkout_time = recent_visit_data.get('expected_checkout_time')
+                    if check_in_time and expected_checkout_time:
+                        try:
+                            checkin_dt = datetime.strptime(check_in_time, "%Y-%m-%d %H:%M:%S")
+                            checkout_dt = datetime.strptime(expected_checkout_time, "%Y-%m-%d %H:%M:%S")
+                            if now > checkout_dt:
+                                exceeded = True
+                                current_status = 'Exceeded'
+                        except ValueError:
+                            pass
+                elif status_from_visit.lower() in ['approved', 'approve']:
+                    current_status = 'Approved'
+                elif status_from_visit.lower() in ['registered', 'register']:
+                    current_status = 'Registered'
+                elif status_from_visit.lower() in ['rejected', 'reject']:
+                    current_status = 'Rejected'
+                elif status_from_visit.lower() in ['rescheduled', 'reschedule']:
+                    current_status = 'Rescheduled'
+                elif status_from_visit.lower() in ['exceeded', 'time_exceeded']:
+                    current_status = 'Exceeded'
+                    exceeded = True
+                else:
+                    current_status = status_from_visit
+                purpose = recent_visit_data.get('purpose', 'N/A')
+                employee_name = recent_visit_data.get('employee_name', 'N/A')
+                visit_date = recent_visit_data.get('visit_date', 'N/A')
+                duration = recent_visit_data.get('duration', 'N/A')
+                check_in_time = recent_visit_data.get('check_in_time')
+                check_out_time = recent_visit_data.get('check_out_time')
+        transactions = data.get('transactions', {})
+        num_visits = len(visits) if visits else len(transactions) if isinstance(transactions, dict) else 0
+        registered_at = 'N/A'
+        if transactions:
+            earliest_transaction = min(transactions.keys())
+            registered_at = transactions[earliest_transaction].get('timestamp', 'N/A')
+        visitors_data.append({
+            'id': vid,
+            'unique_id': vid,
+            'name': visitor_name,
+            'contact': visitor_contact,
+            'email': visitor_email,
+            'company': company,
+            'purpose': purpose,
+            'status': current_status,
+            'exceeded': exceeded,
+            'blacklisted': blacklisted,
+            'blacklist_reason': blacklist_reason,
+            'transactions': transactions,
+            'visits': visits,
+            'visit_date': visit_date,
+            'last_visit_time': last_visit_time,
+            'check_in_time': check_in_time,
+            'num_visits': num_visits,
+            'check_out_time': check_out_time,
+            'expected_checkout_time': expected_checkout_time,
+            'registered_at': registered_at,
+            'employee_name': employee_name,
+            'duration': duration,
+            'photo_path': basic_info.get('photo_path', 'N/A'),
+            'profile_link': basic_info.get('profile_link', 'N/A')
+        })
+    return visitors_data
+
+
+@app.route('/blacklist')
+def blacklist_page():
+    """List only blacklisted individuals with verbose details and option to remove from blacklist."""
+    if USE_MOCK_DATA:
+        all_visitors = get_mock_visitors()
+    else:
+        visitors_ref = db.reference('visitors')
+        all_visitors = visitors_ref.get() or {}
+    visitors_data = _build_visitor_list_from_raw(all_visitors)
+    filtered_visitors = [v for v in visitors_data if v['blacklisted']]
+    filtered_visitors.sort(key=lambda x: x['last_visit_time'] or datetime.min, reverse=True)
+    total_blacklisted = len(filtered_visitors)
+    per_page = 10
+    page = int(request.args.get('page', 1))
+    total_pages = max(1, (total_blacklisted + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
+    start_idx = (page - 1) * per_page
+    end_idx = start_idx + per_page
+    paginated = filtered_visitors[start_idx:end_idx]
+    showing_start = start_idx + 1 if total_blacklisted else 0
+    showing_end = min(end_idx, total_blacklisted)
+
+    BLACKLIST_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Blacklisted Individuals | Admin Dashboard</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+        <style>
+            .card-hover { transition: all 0.2s ease; }
+            .card-hover:hover { box-shadow: 0 10px 25px -5px rgba(0,0,0,0.08); }
+        </style>
+    </head>
+    <body class="bg-gray-50 min-h-screen">
+        <div class="bg-white shadow-sm border-b">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+                <div class="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                        <h1 class="text-2xl font-bold text-gray-900">Blacklisted Individuals</h1>
+                        <p class="text-sm text-gray-600 mt-1">View details and remove visitors from the blacklist. Total: <strong>{{ total_blacklisted }}</strong></p>
+                    </div>
+                    <div class="flex items-center gap-3">
+                        <a href="{{ url_for('index') }}" class="text-gray-600 hover:text-gray-900 flex items-center">
+                            <i class="fas fa-home mr-2"></i>Admin Home
+                        </a>
+                        <a href="{{ url_for('visitors_list') }}" class="text-blue-600 hover:text-blue-800 flex items-center font-medium">
+                            <i class="fas fa-users mr-2"></i>All Visitors
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {% if total_blacklisted == 0 %}
+            <div class="bg-white rounded-xl border border-gray-200 p-12 text-center">
+                <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 text-green-600 mb-4">
+                    <i class="fas fa-check-circle text-3xl"></i>
+                </div>
+                <h2 class="text-xl font-semibold text-gray-800 mb-2">No blacklisted individuals</h2>
+                <p class="text-gray-600 mb-6">There are no visitors currently on the blacklist.</p>
+                <a href="{{ url_for('visitors_list') }}" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    <i class="fas fa-users mr-2"></i>View all visitors
+                </a>
+            </div>
+            {% else %}
+            <p class="text-sm text-gray-500 mb-4">Showing {{ showing_start }}–{{ showing_end }} of {{ total_blacklisted }}</p>
+            <div class="space-y-6">
+                {% for visitor in paginated %}
+                <div class="bg-white rounded-xl border border-red-100 shadow-sm overflow-hidden card-hover">
+                    <div class="p-6">
+                        <div class="flex flex-wrap items-start justify-between gap-4">
+                            <div class="flex-1 min-w-0">
+                                <h3 class="text-lg font-semibold text-gray-900">{{ visitor.name }}</h3>
+                                <p class="text-sm text-gray-500 font-mono mt-0.5">ID: {{ visitor.unique_id }}</p>
+                                <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+                                    <div><span class="text-gray-500">Contact:</span> <span class="text-gray-900">{{ visitor.contact }}</span></div>
+                                    <div><span class="text-gray-500">Email:</span> <span class="text-gray-900">{{ visitor.email }}</span></div>
+                                    <div><span class="text-gray-500">Company:</span> <span class="text-gray-900">{{ visitor.company }}</span></div>
+                                </div>
+                                <div class="mt-4 p-3 bg-red-50 rounded-lg border border-red-100">
+                                    <p class="text-xs font-medium text-red-800 uppercase tracking-wide">Blacklist reason</p>
+                                    <p class="text-sm text-gray-800 mt-1">{{ visitor.blacklist_reason }}</p>
+                                </div>
+                                <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-2 text-sm">
+                                    <div><span class="text-gray-500">Visits:</span> <span class="text-gray-900">{{ visitor.num_visits }}</span></div>
+                                    <div><span class="text-gray-500">Last visit:</span> <span class="text-gray-900">{{ visitor.visit_date }}</span></div>
+                                    <div><span class="text-gray-500">Last purpose:</span> <span class="text-gray-900">{{ visitor.purpose }}</span></div>
+                                    <div><span class="text-gray-500">Employee met:</span> <span class="text-gray-900">{{ visitor.employee_name }}</span></div>
+                                    <div><span class="text-gray-500">Last status:</span> <span class="text-gray-900">{{ visitor.status }}</span></div>
+                                    <div><span class="text-gray-500">Check-in:</span> <span class="text-gray-900">{{ visitor.check_in_time or 'N/A' }}</span></div>
+                                    <div><span class="text-gray-500">Check-out:</span> <span class="text-gray-900">{{ visitor.check_out_time or 'N/A' }}</span></div>
+                                    <div><span class="text-gray-500">Registered at:</span> <span class="text-gray-900">{{ visitor.registered_at }}</span></div>
+                                </div>
+                            </div>
+                            <div class="flex flex-col gap-2 shrink-0">
+                                <a href="{{ url_for('visitor_detail', visitor_id=visitor.id) }}" class="inline-flex items-center justify-center px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 text-sm font-medium">
+                                    <i class="fas fa-user mr-2"></i>View full profile
+                                </a>
+                                <button type="button" onclick="removeFromBlacklist('{{ visitor.id }}')" class="inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+                                    <i class="fas fa-user-check mr-2"></i>Remove from blacklist
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+
+            {% if total_pages > 1 %}
+            <div class="mt-8 flex flex-wrap items-center justify-center gap-2">
+                {% if page > 1 %}
+                <a href="{{ url_for('blacklist_page') }}?page={{ page - 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">Previous</a>
+                {% endif %}
+                <span class="px-4 py-2 text-gray-600">Page {{ page }} of {{ total_pages }}</span>
+                {% if page < total_pages %}
+                <a href="{{ url_for('blacklist_page') }}?page={{ page + 1 }}" class="px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">Next</a>
+                {% endif %}
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+
+        <script>
+            async function removeFromBlacklist(visitorId) {
+                if (!confirm('Remove this visitor from the blacklist? They will be able to check in again.')) return;
+                try {
+                    const response = await fetch('/blacklist/' + visitorId, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ blacklisted: false, reason: '' })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        window.location.reload();
+                    } else {
+                        alert('Error: ' + (data.message || 'Could not update blacklist.'));
+                    }
+                } catch (e) {
+                    alert('Error: Could not update blacklist.');
+                }
+            }
+        </script>
+    </body>
+    </html>
+    """
+    return render_template_string(
+        BLACKLIST_HTML,
+        paginated=paginated,
+        total_blacklisted=total_blacklisted,
+        page=page,
+        total_pages=total_pages,
+        showing_start=showing_start,
+        showing_end=showing_end
+    )
+
+
 @app.route('/blacklist/<visitor_id>', methods=['POST'])
 def toggle_blacklist(visitor_id):
-    """Toggle blacklist status for a visitor"""
+    """Toggle blacklist status for a visitor (updates basic_info only)."""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         blacklisted = data.get('blacklisted', False)
         reason = data.get('reason', 'No reason provided')
-        
+
+        if USE_MOCK_DATA:
+            return jsonify({
+                'success': True,
+                'message': f'Visitor {"blacklisted" if blacklisted else "unblacklisted"} successfully (mock mode)'
+            })
+
         visitors_ref = db.reference('visitors')
         visitor_ref = visitors_ref.child(visitor_id)
-        
-        # Update blacklist status in basic_info
+
+        # Update blacklist status in basic_info only
         visitor_ref.child('basic_info').update({
             'blacklisted': 'yes' if blacklisted else 'no',
             'blacklist_reason': reason if blacklisted else 'No reason provided'
         })
-        
+
         return jsonify({
             'success': True,
             'message': f'Visitor {"blacklisted" if blacklisted else "unblacklisted"} successfully'
         })
-        
+
     except Exception as e:
         return jsonify({
             'success': False,
             'message': f'Error updating blacklist status: {str(e)}'
         }), 500
-@app.route('/blacklist/<visitor_id>', methods=['POST'])
-def update_blacklist(visitor_id):
-    try:
-        data = request.get_json(force=True)
-        blacklisted = data.get('blacklisted', False)
-        reason = data.get('reason', '') if blacklisted else ''
-
-        visitor_ref = db.reference(f'visitors/{visitor_id}')
-        visitor_data = visitor_ref.get()
-
-        if not visitor_data:
-            return jsonify({"error": "Visitor not found"}), 404
-
-        # Store consistently as string for clean mapping in frontend
-        blacklist_value = "yes" if blacklisted else "no"
-
-        visitor_ref.update({
-            'blacklisted': blacklist_value,
-            'blacklist_reason': reason
-        })
-
-        return jsonify({
-            "success": True,
-            "blacklisted": blacklist_value,
-            "reason": reason
-        }), 200
-
-    except Exception as e:
-        print("⚠️ Blacklist update error:", e)
-        return jsonify({"error": str(e)}), 500
 
 # Load your trained sentiment model once
 with open("sentiment_analysis.pkl", "rb") as f:
