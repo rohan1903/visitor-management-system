@@ -1,433 +1,206 @@
-# Visitor Management System (VMS)
+# HFQVAP: Hybrid Face–QR Authentication for Visitor Management Systems
 
-A comprehensive visitor management system for events and general visitor management with face recognition, AI chatbot, and analytics capabilities.
+## Abstract
 
-## 🪟 Quick Start for Windows Users
+Single-factor authentication at visitor management gates presents inherent trade-offs: QR-only schemes are vulnerable to credential theft and sharing, while face-only schemes cannot disambiguate visually similar individuals without a secondary factor. This repository implements a **Hybrid Face–QR Visitor Authentication Protocol (HFQVAP)** that binds a per-visit QR token to biometric face verification through a five-state QR lifecycle with automatic invalidation on misuse. The system is configurable across three protocol variants — hybrid, face-only, and QR-only — under the same deployment, enabling direct comparison of security properties. All gate events are logged with protocol metadata for post-hoc analysis. The evaluation targets replay resistance, impersonation detection, stolen-credential handling, and twin disambiguation across the three variants.
 
-If you're on Windows and your webcam doesn't work on Linux, follow these steps:
+## Research Problem
 
-1. **Install Python 3.8+** from [python.org](https://www.python.org/downloads/)
-2. **Open Command Prompt or PowerShell** as Administrator
-3. **Navigate to project**: `cd path\to\major-project`
-4. **Create virtual environment**: `python -m venv venv`
-5. **Activate it**: `venv\Scripts\activate`
-6. **Install dlib** (use conda if pip fails): `conda install -c conda-forge dlib`
-7. **Follow Step 2-5 below** to install dependencies and run apps
+Visitor management gates require identity verification that is both secure (only the registered visitor gains access) and operationally practical (low friction at the gate). The two common single-factor approaches each leave specific threats unaddressed:
 
-**Note:** Even if your webcam doesn't work, you can test the system by uploading images manually during registration.
+- **QR-only:** Any holder of the QR image can authenticate. A credential stolen inside the premises can be reused at departure. The system has no mechanism to verify that the person presenting the QR is its intended holder.
+- **Face-only:** Access is bound to biometric identity, but visually similar individuals (twins, look-alikes) produce ambiguous matches. Without a secondary factor, the system cannot resolve which visitor is present.
 
-## 📁 Project Structure
+This work investigates whether a hybrid protocol — cross-verifying face and QR with a token state machine and invalidation rules — addresses the weaknesses of either single-factor approach, and characterizes the trade-offs involved.
+
+## Contributions
+
+- **Protocol specification.** A hybrid face–QR authentication protocol with a five-state QR lifecycle (UNUSED, CHECKIN_USED, ASSUMED_SCANNED, CHECKOUT_USED, INVALIDATED), defined transition rules, and six operational invariants. The protocol is specified in [docs/Hybrid_Face_QR_Protocol.md](docs/Hybrid_Face_QR_Protocol.md), including state and sequence diagrams.
+- **Threat analysis.** A qualitative threat model covering six categories (QR theft, QR replay, face spoofing, no-departure, post-entry QR theft, twin ambiguity) with per-threat comparison across all three variants. Limitations — notably liveness detection and tailgating — are explicitly scoped out.
+- **Comparative evaluation framework.** A single codebase supporting three authentication modes (`hybrid`, `face_only`, `qr_only`) switchable via environment variable, with structured event logging (`auth_mode`, `protocol_config`) for reproducible comparison.
+
+## System Architecture
 
 ```
-major-project/
-├── Register_App/          # Visitor Registration & Management System
-│   ├── app.py            # Main Flask application (Port 5001)
-│   ├── chatbot.py        # AI Chatbot (Streamlit)
-│   ├── speech_app.py     # Speech-to-text service (Port 5000)
-│   └── templates/        # HTML templates
-│
-├── Admin/                # Admin Dashboard
-│   ├── app.py            # Admin Flask application (Port 5000)
-│   └── templates/        # Admin dashboard templates
-│
-└── Webcam/               # Check-in Gate System
-    ├── app.py            # Webcam check-in Flask app (Port 5002)
-    └── templates/        # Check-in gate templates
+├── docs/                  # Protocol specification and threat model
+│   └── Hybrid_Face_QR_Protocol.md
+├── Register_App/          # Visitor registration, QR issuance, host approval
+│   ├── app.py             # Flask (Port 5001)
+│   ├── chatbot.py         # Visitor assistant (Streamlit / Gemini)
+│   └── templates/
+├── Admin/                 # Dashboard, analytics, access-control list
+│   ├── app.py             # Flask (Port 5000)
+│   └── templates/
+└── Webcam/                # Gate — protocol engine (AUTH_MODE configurable)
+    ├── app.py             # Flask (Port 5002)
+    ├── qr_module.py       # QR generation, validation, state machine
+    └── templates/
 ```
 
-## 🚀 Quick Start Guide
+| Component | Responsibility |
+|-----------|---------------|
+| Register_App | Visitor pre-registration, face embedding capture (dlib ResNet, 128-D), per-visit QR token generation (`secrets.token_urlsafe(32)`, JSON-encoded, visit-bound), host approval workflow. |
+| Admin | Visitor and employee management, blacklist enforcement, feedback sentiment analysis, visit analytics. |
+| Webcam | Gate endpoint implementing the three protocol variants: face matching, QR parsing and state management, cross-verification, invalidation logic, and structured event logging. |
+
+Data is persisted in Firebase Realtime Database. All three components share the same database instance.
+
+## Protocol Variants
+
+The gate supports three modes selected via `AUTH_MODE`:
+
+| Variant | Value | Gate behavior | QR state machine |
+|---------|-------|---------------|------------------|
+| Hybrid | `hybrid` | Face match + QR validation; cross-verification that both identify the same visitor. | Active: full lifecycle with invalidation on mismatch and stolen-QR detection. |
+| Face-only | `face_only` | Face match only; QR data ignored. | Inactive: no state updates. |
+| QR-only | `qr_only` | Valid QR token only; face not required. | Partial: token validated (expiry, state) but no face cross-check. |
+
+The hybrid variant enforces six invariants: dual binding (face and QR must agree), single use per phase, mismatch invalidation, stolen-QR detection (face-only departure after QR arrival), blacklist enforcement, and token expiry. These are specified with state and sequence diagrams in the [protocol document](docs/Hybrid_Face_QR_Protocol.md).
+
+## Threat Model
+
+Six threat categories are analyzed. Full descriptions and per-variant handling are in the [protocol document](docs/Hybrid_Face_QR_Protocol.md).
+
+| Threat | Face-only | QR-only | Hybrid |
+|--------|-----------|---------|--------|
+| T1. QR theft / sharing | N/A | Vulnerable | Mitigated (face–QR binding) |
+| T2. QR replay | N/A | Mitigated (expiry + state) | Mitigated (expiry + state) |
+| T3. Face spoofing | Out of scope (liveness assumption) | N/A | Same as face-only |
+| T4. No departure | Operational (audit only) | Operational (audit only) | Operational (audit only) |
+| T5. Post-entry QR theft | N/A | Vulnerable | Mitigated (invalidation on face-only departure) |
+| T6. Twin / ambiguous face | Vulnerable | N/A | Mitigated (QR disambiguation) |
+
+The hybrid variant addresses T1, T5, and T6 relative to the single-factor baselines. T3 (face spoofing) is an explicit non-goal: liveness detection is orthogonal to the protocol and is noted as an assumption. T4 (no departure) is operational and not mitigated by any variant.
+
+## Evaluation
+
+### Measured properties
+
+| Property | Procedure | Applicable variants |
+|----------|-----------|---------------------|
+| Replay resistance | Resubmit a previously used QR; verify state-machine rejection. | QR-only, hybrid |
+| Impersonation detection | Present a valid QR with a non-matching face; verify denial and QR invalidation. | Hybrid |
+| Stolen-credential detection | Use QR at arrival, face-only at departure; verify QR invalidation and security alert. | Hybrid |
+| Twin disambiguation | Present two visitors within the face-distance ambiguity threshold; verify QR-based resolution. | Face-only vs. hybrid |
+| Gate response time | Measure time from HTTP request to response under each variant. | All |
+
+### Event logs
+
+| Firebase path | Contents |
+|---------------|----------|
+| `research_protocol_events/` | Arrival, departure, and invalidation events with `auth_mode`, `protocol_config`, `timestamp`, `visitor_id`, `visit_id`. |
+| `visitors/{id}/visits/{id}/qr_state` | QR state snapshot: `status`, `scan_count`, `auth_method`, `invalidated_at`, `invalidated_reason`. |
+| `visitors/{id}/visits/{id}/qr_scan_log/` | Chronological scan events: `scan_type`, `auth_mode`, `ip`, `face_distance`. |
+| `visitors/{id}/transactions/` | Per-action log: `action`, `auth_mode`, `face_distance`, `timestamp`. |
+| `security_alerts/` | Alert records: `alert_type` (QR_FACE_MISMATCH, QR_POSSIBLY_STOLEN, TWIN_DETECTED). |
+
+### Comparison method
+
+1. Deploy the gate under each `AUTH_MODE` in sequence or on parallel instances.
+2. Execute a fixed set of scenarios: normal visit, QR reuse, QR presented by wrong person, face-only departure after QR arrival, twin presentation.
+3. Export `research_protocol_events` and `security_alerts` from Firebase (console, REST API, or SDK).
+4. Compare across variants: (a) threat detection coverage, (b) false rejection of legitimate visitors, (c) response latency.
+
+## Reproducibility
+
+### Switching modes
+
+```bash
+AUTH_MODE=hybrid    python Webcam/app.py   # default
+AUTH_MODE=face_only python Webcam/app.py   # baseline A
+AUTH_MODE=qr_only   python Webcam/app.py   # baseline B
+```
+
+Alternatively, set `AUTH_MODE` in `Webcam/.env`. The active mode is validated and logged at startup.
+
+### Log locations
+
+- **Protocol events:** `research_protocol_events/` — each record includes `protocol_config` (which mode was active).
+- **QR state:** `visitors/{id}/visits/{id}/qr_state` and `qr_scan_log/`.
+- **Security alerts:** `security_alerts/` at database root.
+
+---
+
+## Setup
 
 ### Prerequisites
 
-- Python 3.8 or higher
-- pip (Python package manager)
-- Firebase credentials file (`firebase_credentials.json`)
-- Webcam (for face recognition features) - **Note: If webcam doesn't work, you can still test with uploaded images**
-- Required ML model files (already included in the project)
+- Python 3.8+
+- Firebase Realtime Database credentials (`firebase_credentials.json`)
+- Webcam or uploaded images for face registration
+- Pre-trained models (included): `shape_predictor_68_face_landmarks.dat`, `dlib_face_recognition_resnet_model_v1.dat`, `sentiment_analysis.pkl`, `genderage.onnx`
 
-### Step 1: Setup Virtual Environment (Recommended)
+### Installation
 
-Using a virtual environment prevents package conflicts and is especially recommended for Windows:
-
-**Windows:**
-```cmd
-# Create virtual environment
-python -m venv venv
-
-# Activate it
-venv\Scripts\activate
-
-# You should see (venv) in your prompt
-```
-
-**Linux/Mac:**
 ```bash
-# Create virtual environment
-python3 -m venv venv
+python3 -m venv venv && source venv/bin/activate
 
-# Activate it
-source venv/bin/activate
-
-# You should see (venv) in your prompt
+pip install -r Register_App/requirements.txt
+pip install -r Admin/requirements.txt
+pip install -r Webcam/requirements.txt
 ```
 
-**Note:** Activate the virtual environment before installing packages and running the apps.
+dlib requires CMake and platform libraries (`sudo apt-get install cmake libopenblas-dev liblapack-dev` on Debian/Ubuntu). See [dlib.net](http://dlib.net/compile.html) or use `conda install -c conda-forge dlib`.
 
-### Step 2: Install Dependencies
+### Configuration
 
-Each component has its own requirements. Install them separately:
+Create `.env` in each component directory:
 
-#### 📦 For Register_App:
-**Linux/Mac:**
-```bash
-cd Register_App
-pip install -r requirements.txt
-pip install flask firebase-admin opencv-python dlib python-dotenv werkzeug
+**Register_App/.env:**
 ```
-
-**Windows (Command Prompt or PowerShell):**
-```cmd
-cd Register_App
-pip install -r requirements.txt
-pip install flask firebase-admin opencv-python dlib python-dotenv werkzeug
-```
-
-#### 📦 For Admin:
-**Linux/Mac:**
-```bash
-cd Admin
-pip install -r requirements.txt
-pip install flask firebase-admin pandas openpyxl python-dotenv scikit-learn
-```
-
-**Windows:**
-```cmd
-cd Admin
-pip install -r requirements.txt
-pip install flask firebase-admin pandas openpyxl python-dotenv scikit-learn
-```
-
-#### 📦 For Webcam:
-**Linux/Mac:**
-```bash
-cd Webcam
-pip install -r requirements.txt
-pip install flask firebase-admin opencv-python dlib python-dotenv onnxruntime
-```
-
-**Windows:**
-```cmd
-cd Webcam
-pip install -r requirements.txt
-pip install flask firebase-admin opencv-python dlib python-dotenv onnxruntime
-```
-
-### 🔧 Installing dlib (Important!)
-
-**dlib** is required for face recognition but can be tricky to install. Follow platform-specific instructions:
-
-#### 🐧 Linux (Ubuntu/Debian):
-```bash
-# Install system dependencies
-sudo apt-get update
-sudo apt-get install cmake libopenblas-dev liblapack-dev libx11-dev libjpeg-dev
-
-# Then install dlib
-pip install dlib
-```
-
-#### 🪟 Windows:
-**Option 1: Using pip (Easiest - Recommended)**
-```cmd
-pip install dlib
-```
-
-**Option 2: If pip fails, use conda (Recommended for Windows):**
-```cmd
-# Install Anaconda/Miniconda first, then:
-conda install -c conda-forge dlib
-```
-
-**Option 3: Pre-built wheel (if above methods fail):**
-1. Download dlib wheel from: https://pypi.org/project/dlib/#files
-2. Choose the correct version for your Python version (e.g., `dlib-19.24.2-cp39-cp39-win_amd64.whl` for Python 3.9)
-3. Install: `pip install path/to/downloaded/wheel.whl`
-
-**Option 4: Build from source (Advanced):**
-```cmd
-# Install Visual Studio Build Tools first
-# Then:
-pip install cmake
-pip install dlib
-```
-
-#### 🍎 macOS:
-```bash
-# Install Xcode Command Line Tools first
-xcode-select --install
-
-# Install dlib
-pip install dlib
-```
-
-### Step 3: Setup Environment Variables
-
-Create a `.env` file in each component directory with the following variables:
-
-#### Register_App/.env:
-```env
-SECRET_KEY=your_secret_key_here
+SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
-GEMINI_API_KEY=your_gemini_api_key
+EMAIL_USER=<email>
+EMAIL_PASS=<app_password>
+GEMINI_API_KEY=<key>
 ```
 
-#### Admin/.env:
-```env
-SECRET_KEY=your_secret_key_here
+**Admin/.env:**
+```
+SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
+EMAIL_USER=<email>
+EMAIL_PASS=<app_password>
 REGISTRATION_APP_URL=http://localhost:5001
 ```
 
-#### Webcam/.env:
-```env
-SECRET_KEY=your_secret_key_here
+**Webcam/.env:**
+```
+SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
 SMTP_PORT=587
-EMAIL_USER=your_email@gmail.com
-EMAIL_PASS=your_app_password
+EMAIL_USER=<email>
+EMAIL_PASS=<app_password>
 COMPANY_IP=127.0.0.1
+AUTH_MODE=hybrid
 ```
 
-### Step 4: Firebase Setup
+### Running
 
-1. Ensure `firebase_credentials.json` is present in each component directory
-2. The Firebase database URL is already configured in the code: `https://v-guard-af8af-default-rtdb.firebaseio.com/`
-
-### Step 5: Run the Applications
-
-You need to run each component in a separate terminal/command prompt window:
-
-#### 🖥️ Windows Instructions:
-
-**Terminal 1 - Register App (Port 5001):**
-```cmd
-cd Register_App
-python app.py
-```
-Access at: http://localhost:5001
-
-**Terminal 2 - Admin Dashboard (Port 5000):**
-```cmd
-cd Admin
-python app.py
-```
-Access at: http://localhost:5000
-
-**Terminal 3 - Webcam Check-in (Port 5002):**
-```cmd
-cd Webcam
-python app.py
-```
-Access at: http://localhost:5002
-
-**Terminal 4 - Speech App (Optional, Port 5000 - may conflict with Admin):**
-```cmd
-cd Register_App
-python speech_app.py
-```
-
-**Terminal 5 - Chatbot (Streamlit):**
-```cmd
-cd Register_App
-streamlit run chatbot.py
-```
-Access at: http://localhost:8501
-
-#### 🐧 Linux/Mac Instructions:
-
-**Terminal 1 - Register App (Port 5001):**
 ```bash
-cd Register_App
-python app.py
-# or python3 app.py
-```
-Access at: http://localhost:5001
-
-**Terminal 2 - Admin Dashboard (Port 5000):**
-```bash
-cd Admin
-python app.py
-# or python3 app.py
-```
-Access at: http://localhost:5000
-
-**Terminal 3 - Webcam Check-in (Port 5002):**
-```bash
-cd Webcam
-python app.py
-# or python3 app.py
-```
-Access at: http://localhost:5002
-
-**Terminal 4 - Speech App (Optional):**
-```bash
-cd Register_App
-python speech_app.py
+cd Register_App && python app.py   # Port 5001
+cd Admin && python app.py          # Port 5000
+cd Webcam && python app.py         # Port 5002
 ```
 
-**Terminal 5 - Chatbot (Streamlit):**
-```bash
-cd Register_App
-streamlit run chatbot.py
-```
-Access at: http://localhost:8501
+Place `firebase_credentials.json` in each component directory before starting.
 
-## 🔧 Configuration
+## Scope and Limitations
 
-### Ports Summary:
-- **Register_App**: Port 5001
-- **Admin Dashboard**: Port 5000 (default Flask)
-- **Webcam Check-in**: Port 5002
-- **Speech App**: Port 5000 (conflicts with Admin - use different port if needed)
-- **Chatbot**: Port 8501 (Streamlit default)
+- **Liveness detection** is not implemented. The threat model assumes face spoofing is handled by an orthogonal mechanism and explicitly scopes it out (T3).
+- **Tailgating / no-departure** (T4) is an operational concern not addressed by any of the three protocol variants; the system provides audit logs but no automatic mitigation.
+- **Face recognition accuracy** depends on dlib's pre-trained ResNet model and the quality of registered embeddings. The protocol evaluation focuses on the authentication logic, not on the underlying biometric performance.
+- **QR token security** relies on `secrets.token_urlsafe(32)` for generation and HTTPS for transport in deployment. The protocol does not introduce novel cryptographic constructions.
+- **Scale.** The system was tested in a single-gate, single-database configuration. Multi-gate or federated deployments are not evaluated.
 
-### Required Model Files:
-The following model files should be present:
-- `shape_predictor_68_face_landmarks.dat` (dlib face landmarks)
-- `dlib_face_recognition_resnet_model_v1.dat` (dlib face recognition)
-- `sentiment_analysis.pkl` (Admin sentiment analysis model)
-- `genderage.onnx` (gender/age detection - Register_App)
+## Security Notes
 
-## 📝 Features
+- Replace default `SECRET_KEY` values before any non-local deployment.
+- Do not commit `firebase_credentials.json` to version control.
+- Use HTTPS in production to protect QR tokens in transit.
 
-### Register_App:
-- Visitor registration with face capture
-- Face recognition verification
-- Employee management
-- QR code generation
-- AI chatbot for event navigation and premises guidance
-- Speech-to-text support
-- Check-in/check-out system
+## License
 
-### Admin Dashboard:
-- Visitor management and tracking
-- Employee management
-- Feedback sentiment analysis
-- Blacklist management
-- Visitor analytics
-- Email invitation system
-- Excel bulk upload
-
-### Webcam:
-- Real-time face recognition check-in
-- Automatic visitor verification
-- Check-in/check-out logging
-- Feedback collection
-- Email notifications
-
-## Troubleshooting
-
-### Common Issues:
-
-1. **dlib installation fails:**
-   - **Windows**: Use conda or download pre-built wheel (see dlib installation section above)
-   - **Linux**: Install system dependencies first: `sudo apt-get install cmake libopenblas-dev liblapack-dev`
-   - **Alternative**: Use conda on any platform: `conda install -c conda-forge dlib`
-
-2. **Webcam not working / Camera access issues:**
-   
-   **Windows:**
-   - Check Windows Privacy Settings: Settings → Privacy → Camera → Allow apps to access camera
-   - Grant permission to Python/your browser
-   - Try different browsers (Chrome, Edge, Firefox)
-   - Check if webcam works in other applications (Camera app, Zoom, etc.)
-   - Update webcam drivers from device manufacturer
-   - If using WSL (Windows Subsystem for Linux), webcam won't work - use native Windows Python
-   
-   **Linux:**
-   - Check permissions: `ls -l /dev/video*` (should show your user has access)
-   - Install v4l-utils: `sudo apt-get install v4l-utils`
-   - Test webcam: `v4l2-ctl --list-devices`
-   - Add user to video group: `sudo usermod -a -G video $USER` (logout/login required)
-   - Check if webcam is being used by another app: `lsof | grep video`
-   - Try: `sudo chmod 666 /dev/video0` (replace 0 with your device number)
-   
-   **Workaround if webcam doesn't work:**
-   - You can still test the system by uploading images manually
-   - The registration system supports image file uploads
-   - Face recognition will work with uploaded images even without webcam
-
-3. **Firebase connection errors:**
-   - Verify `firebase_credentials.json` exists in each directory
-   - Check Firebase database URL in code matches your project
-   - Ensure you have internet connection
-   - Check Firebase console for service status
-
-4. **Port already in use:**
-   - **Windows**: Find process using port: `netstat -ano | findstr :5001` then kill: `taskkill /PID <pid> /F`
-   - **Linux/Mac**: Find process: `lsof -i :5001` then kill: `kill -9 <pid>`
-   - Or change the port in the `app.run()` call at the bottom of each `app.py`
-
-5. **Email not sending:**
-   - For Gmail, use an "App Password" instead of your regular password
-   - Generate App Password: Google Account → Security → 2-Step Verification → App Passwords
-   - Enable "Less secure app access" (if available) or use OAuth2
-   - Check firewall/antivirus isn't blocking SMTP connections
-
-6. **Face recognition not working:**
-   - Ensure webcam permissions are granted (see webcam troubleshooting above)
-   - Check that model files are in the correct directory:
-     - `shape_predictor_68_face_landmarks.dat`
-     - `dlib_face_recognition_resnet_model_v1.dat`
-   - Verify dlib is properly installed: `python -c "import dlib; print(dlib.__version__)"`
-   - Test with uploaded images if webcam fails
-
-7. **Python command not found (Windows):**
-   - Use `py` instead of `python`: `py app.py`
-   - Or use `python3` if you have multiple Python versions
-   - Check Python is in PATH: `where python` (Windows) or `which python` (Linux/Mac)
-
-8. **ModuleNotFoundError:**
-   - Ensure you're in the correct directory
-   - Install missing packages: `pip install <package_name>`
-   - Use virtual environment to avoid conflicts: `python -m venv venv` then activate it
-
-## 📚 Additional Notes
-
-- The system uses Firebase Realtime Database for data storage
-- Face recognition uses dlib with 128D embeddings
-- Sentiment analysis uses a pre-trained scikit-learn model
-- All three components share the same Firebase database
-- Test upload images are preserved in `uploads/` directories
-
-### 🌐 Platform-Specific Notes:
-
-**Windows:**
-- Use Command Prompt or PowerShell (both work)
-- If `python` doesn't work, try `py` command
-- Webcam access requires Windows Privacy Settings permission
-- Recommended to use Anaconda/Miniconda for easier package management
-
-**Linux:**
-- May need to use `python3` instead of `python`
-- Webcam may require user to be in `video` group
-- Some distributions may need additional system packages
-
-**Cross-Platform Testing:**
-- You can develop on one platform and test on another
-- Firebase and database work across all platforms
-- Webcam functionality is platform-dependent
-
-## 🔐 Security Notes
-
-- Change default `SECRET_KEY` values in production
-- Use environment variables for sensitive data (API keys, passwords)
-- Never commit `firebase_credentials.json` to version control
-- Use strong passwords and enable 2FA for email accounts
-
+This project is provided for academic and research purposes.
