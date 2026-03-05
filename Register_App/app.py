@@ -19,6 +19,10 @@ import logging
 from flask import send_from_directory
 import random
 from werkzeug.utils import secure_filename
+try:
+    import requests
+except ImportError:
+    requests = None
 
 try:
     import qrcode as qrcode_lib
@@ -51,6 +55,9 @@ if not all([SMTP_SERVER, SMTP_PORT, EMAIL_ADDRESS, EMAIL_PASSWORD]):
 UPLOAD_FOLDER = os.path.join(os.getcwd(), "uploads_reg")
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# --- Admin app URL (for meeting rooms list) ---
+ADMIN_APP_URL = os.environ.get("ADMIN_APP_URL", "http://localhost:5000").rstrip("/")
 
 # --- Firebase init with better error handling ---
 db_app = None
@@ -150,7 +157,7 @@ def send_email(recipient_email, recipient_name, profile_link):
                 <p>Please keep this link for future reference.</p>
                 <hr style="border: none; border-top: 1px solid #eee; margin: 20px 0;">
                 <p style="font-size: 12px; color: #666;">
-                    This is an automated message from the Visitor Management System.
+                    This is an automated message from the Office Workplace Intelligence Platform.
                 </p>
             </div>
         </body>
@@ -218,7 +225,7 @@ def send_employee_notification(employee_email, employee_name, visitor_data, prof
                 </div>
 
                 <p style="font-size: 13px; color: #777; text-align: center;">
-                    This is an automated message from the Visitor Management System.
+                    This is an automated message from the Office Workplace Intelligence Platform.
                 </p>
             </div>
         </body>
@@ -263,13 +270,13 @@ def send_custom_email(recipient_email, subject, body):
         <html>
         <body style="font-family: Arial, sans-serif; line-height: 1.6;">
             <div style="max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
-                <h3 style="color: #3f37c9;">Visitor Management System Notification</h3>
+                <h3 style="color: #3f37c9;">Workplace Intelligence Notification</h3>
                 <div style="background-color: #f8f9fa; padding: 15px; border-radius: 5px;">
                     {body.replace('\n', '<br>')}
                 </div>
                 <br>
                 <p style="font-size: 12px; color: #666;">
-                    This is an automated message from Visitor Management System
+                    This is an automated message from the Office Workplace Intelligence Platform
                 </p>
             </div>
         </body>
@@ -380,6 +387,19 @@ def _create_qr_for_visit(visitor_id, visit_id, visit_date):
 @app.route('/')
 def index():
     return render_template('index.html')
+
+@app.route('/api/rooms')
+def api_rooms():
+    """Return meeting rooms from Admin app (for registration dropdown)."""
+    if not requests:
+        return jsonify({})
+    try:
+        r = requests.get(f"{ADMIN_APP_URL}/api/rooms/list", timeout=5)
+        if r.ok:
+            return jsonify(r.json())
+    except Exception as e:
+        logger.warning(f"Could not fetch rooms from Admin: {e}")
+    return jsonify({})
 
 @app.route('/register')
 def register_page():
@@ -553,7 +573,8 @@ def finalize_registration():
             "has_visited": False,
             "requires_employee_approval": requires_employee_approval,  # CRITICAL: Only True for employee meetings
             "employee_notified": False,  # Will be updated after email sent
-            "employee_actions": []  # Initialize empty actions array for tracking decisions
+            "employee_actions": [],  # Initialize empty actions array for tracking decisions
+            "room_id": data.get("room_id") or ""  # Meeting room (from Admin meeting_rooms)
         }
 
         # Save the visit under visitor

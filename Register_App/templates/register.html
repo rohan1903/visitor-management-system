@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VMS - Visitor Registration</title>
+    <title>Workplace Intelligence - Visitor Registration</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
@@ -531,6 +531,13 @@
                             <option value="Not sure">Not sure</option>
                         </select>
                     </div>
+
+                    <div class="form-group">
+                        <label for="room_id">Meeting room (optional)</label>
+                        <select id="room_id" name="room_id">
+                            <option value="">No room selected</option>
+                        </select>
+                    </div>
                 </form>
             </div>
 
@@ -690,8 +697,34 @@
         radioEmployee.addEventListener('change', togglePurposeInput);
         radioOther.addEventListener('change', togglePurposeInput);
         
-        // Initial setup for fetching employees
+        // Initial setup for fetching employees and rooms
         fetchEmployees();
+        fetchRooms();
+
+        /**
+         * Fetches meeting rooms from Admin and populates the room dropdown.
+         */
+        async function fetchRooms() {
+            const roomSelect = document.getElementById('room_id');
+            try {
+                const response = await fetch('/api/rooms');
+                if (!response.ok) return;
+                const rooms = await response.json();
+                if (rooms && typeof rooms === 'object') {
+                    Object.keys(rooms).forEach(function(roomId) {
+                        const room = rooms[roomId];
+                        const name = room.name || roomId;
+                        const cap = room.capacity ? ' (capacity ' + room.capacity + ')' : '';
+                        const opt = document.createElement('option');
+                        opt.value = roomId;
+                        opt.textContent = name + cap;
+                        roomSelect.appendChild(opt);
+                    });
+                }
+            } catch (err) {
+                console.error('Error fetching rooms:', err);
+            }
+        }
 
         // --- Validation Functions ---
         function validateName(name) {
@@ -895,6 +928,7 @@
                     purpose: purpose,
                     duration: document.getElementById("duration").value,
                     visit_date: visitDateValue, // include date in submission
+                    room_id: document.getElementById("room_id").value || '',
                     photo_base64: photoBase64
                 };
 
