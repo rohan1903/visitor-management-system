@@ -4,4 +4,7 @@ soundfile
 numpy
 firebase-admin
 torch
-pip install insightface onnxruntime opencv-python firebase-admin flask
+insightface
+onnxruntime
+opencv-python
+flask

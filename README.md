@@ -36,11 +36,13 @@ This work investigates whether a hybrid protocol — cross-verifying face and QR
 
 ```
 ├── docs/                  # All documentation (protocol, runbooks, checklist, testing)
+│   ├── README.md           # Docs index — start here
+│   ├── PROJECT_STRUCTURE.md  # Directory layout, config, redundant/archived files
 │   ├── Hybrid_Face_QR_Protocol.md
 │   ├── PROJECT_STATUS_AND_RUNBOOKS.md
 │   ├── FEATURES_CHECKLIST.md
 │   ├── TESTING_GUIDE.md
-│   └── ... (see docs/ for full list)
+│   └── ... (see docs/README.md for full list)
 ├── Register_App/          # Visitor registration, QR issuance, host approval
 │   ├── app.py             # Flask (Port 5001)
 │   ├── chatbot.py         # Visitor assistant (Streamlit / Gemini)

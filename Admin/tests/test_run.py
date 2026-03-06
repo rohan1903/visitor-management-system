@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
-"""Quick test script to check if the app can start"""
+"""Quick test script to check if the app can start. Run from Admin/: python tests/test_run.py"""
 
 import sys
+from pathlib import Path
+
+# Ensure Admin is on path and cwd when running from Admin/tests/
+_admin_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_admin_dir))
 
 print("Testing imports...")
 try:
@@ -30,10 +35,9 @@ print("\nTesting app.py import...")
 try:
     import app
     print("✅ app.py imported successfully")
-    print("\n✅ All checks passed! You can run: python3 app.py")
+    print("\n✅ All checks passed! You can run: python app.py")
 except Exception as e:
     print(f"❌ Error importing app.py: {e}")
     import traceback
     traceback.print_exc()
     sys.exit(1)
-
