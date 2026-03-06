@@ -129,10 +129,11 @@ def trigger_invitation(email):
     registration_base_url = os.getenv("REGISTRATION_APP_URL", "http://localhost:5001")
     registration_link = f"{registration_base_url}/?token={invite_token}"
 
-    db.reference(f"invitations/{invite_token}").set({
-        "email": email,
-        "status": "Pending"
-    })
+    if not USE_MOCK_DATA and FIREBASE_AVAILABLE:
+        db.reference(f"invitations/{invite_token}").set({
+            "email": email,
+            "status": "Pending"
+        })
 
     return send_email(email, registration_link)
 
@@ -963,9 +964,12 @@ def admin_dashboard():
     <body class="bg-gray-50 min-h-screen">
         <!-- Header -->
         <div class="bg-white shadow-sm border-b">
-            <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div class="flex justify-between items-center py-4">
                     <div>
+                        <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-1">
+                            <i class="fas fa-arrow-left mr-1"></i>Back to Admin
+                        </a>
                         <h1 class="text-2xl font-bold text-gray-900">Workspace Intelligence Analytics</h1>
                         <p class="text-sm text-gray-600">Comprehensive visitor insights with time range filters</p>
                     </div>
@@ -973,7 +977,7 @@ def admin_dashboard():
                         <a href="{{ url_for('blacklist_page') }}" class="text-red-600 hover:text-red-800 font-medium flex items-center">
                             <i class="fas fa-ban mr-2"></i>Blacklisted
                         </a>
-                        <a href="/visitors" class="text-blue-600 hover:text-blue-800 font-medium flex items-center">
+                        <a href="{{ url_for('visitors_list') }}" class="text-blue-600 hover:text-blue-800 font-medium flex items-center">
                             <i class="fas fa-users mr-2"></i>View Visitors
                         </a>
                     </div>
@@ -981,7 +985,7 @@ def admin_dashboard():
             </div>
         </div>
 
-        <div class="max-w-8xl mx-auto py-6 sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
             <!-- Time Period Selector -->
             <div class="bg-white rounded-xl shadow p-6 mb-8">
                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-6">
@@ -1448,7 +1452,7 @@ def admin_dashboard():
                         <h3 class="text-lg font-semibold text-gray-900">Room utilization</h3>
                         <div class="flex items-center gap-2">
                             <button type="button" onclick="exportRoomUtilizationCSV()" class="text-sm text-teal-600 hover:underline">Export CSV</button>
-                            <a href="/rooms" class="text-sm text-teal-600 hover:underline">Manage rooms</a>
+                            <a href="{{ url_for('rooms_list') }}" class="text-sm text-teal-600 hover:underline">Manage rooms</a>
                         </div>
                     </div>
                     <p class="text-sm text-gray-500 mb-4">Visits per meeting room in the selected period.</p>
@@ -1470,7 +1474,7 @@ def admin_dashboard():
                             </tbody>
                         </table>
                         {% if not (analytics.get('room_utilization_analytics')) %}
-                        <p class="py-4 text-gray-500 text-sm">No room data in this period. <a href="/rooms" class="text-teal-600 hover:underline">Add rooms</a> and link visits to them.</p>
+                        <p class="py-4 text-gray-500 text-sm">No room data in this period. <a href="{{ url_for('rooms_list') }}" class="text-teal-600 hover:underline">Add rooms</a> and link visits to them.</p>
                         {% endif %}
                     </div>
                 </div>
@@ -3595,13 +3599,14 @@ def visitors_list():
     }
 
     # Pagination
-    total_pages = (total_visitors + per_page - 1) // per_page
+    total_pages = max(1, (total_visitors + per_page - 1) // per_page)
+    page = max(1, min(page, total_pages))
     start_idx = (page - 1) * per_page
     end_idx = start_idx + per_page
     paginated_visitors = filtered_visitors[start_idx:end_idx]
 
     # Calculate display range for template
-    showing_start = start_idx + 1
+    showing_start = start_idx + 1 if total_visitors > 0 else 0
     showing_end = min(end_idx, total_visitors)
 
     VISITORS_HTML = """
@@ -3697,25 +3702,26 @@ def visitors_list():
             }
 
             function exportToCSV() {
-                const headers = ['Unique ID', 'Name', 'Email', 'Purpose', 'Status', 'Visit Date', 'Visits', 'Blacklisted', 'Blacklist Reason', 'Registered At'];
-                const rows = {{ paginated_visitors | tojson }};
+                const headers = ['Unique ID', 'Name', 'Contact', 'Purpose', 'Status', 'Visit Date', 'Visits', 'Blacklisted', 'Blacklist Reason', 'Registered At'];
+                const rows = {{ all_filtered_visitors | tojson }};
+                function esc(v) { return '"' + String(v || '').replace(/"/g, '""') + '"'; }
                 
-                let csvContent = headers.join(',') + '\\n';
+                let csvContent = headers.join(',') + '\n';
                 
                 rows.forEach(visitor => {
                     const row = [
-                        visitor.unique_id,
-                        `"${visitor.name}"`,
-                        `"${visitor.contact}"`,
-                        `"${visitor.purpose}"`,
-                        visitor.status,
-                        visitor.visit_date,
+                        esc(visitor.unique_id),
+                        esc(visitor.name),
+                        esc(visitor.contact),
+                        esc(visitor.purpose),
+                        esc(visitor.status),
+                        esc(visitor.visit_date),
                         visitor.num_visits,
                         visitor.blacklisted ? 'Yes' : 'No',
-                        `"${visitor.blacklist_reason}"`,
-                        visitor.registered_at
+                        esc(visitor.blacklist_reason),
+                        esc(visitor.registered_at)
                     ];
-                    csvContent += row.join(',') + '\\n';
+                    csvContent += row.join(',') + '\n';
                 });
                 
                 const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -3741,7 +3747,7 @@ def visitors_list():
             }
 
             function editVisitor(visitorId) {
-                window.open(`/visitor/edit/${visitorId}`, '_blank');
+                window.open(`/visitor/${visitorId}`, '_blank');
             }
 
             function approveVisitor(visitorId) {
@@ -3794,10 +3800,13 @@ def visitors_list():
         </script>
     </head>
     <body class="min-h-screen bg-gray-50 p-6">
-        <div class="max-w-10xl mx-auto space-y-6">
+        <div class="max-w-7xl mx-auto space-y-6">
             <!-- Header -->
             <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                 <div>
+                    <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-1">
+                        <i class="fas fa-arrow-left mr-1"></i>Back to Admin
+                    </a>
                     <h1 class="text-3xl font-bold text-gray-900">Workplace Intelligence</h1>
                     <p class="text-gray-600">Manage and track all visitor activities</p>
                 </div>
@@ -3828,7 +3837,7 @@ def visitors_list():
                         <label class="block text-sm font-medium text-gray-700 mb-2">Status</label>
                         <select id="statusFilter" 
                                 class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="all" {{ 'selected' if request.args.get('search_status') == 'all' else '' }}>All Status</option>
+                            <option value="all" {{ 'selected' if request.args.get('search_status', 'all') == 'all' else '' }}>All Status</option>
                             <option value="registered" {{ 'selected' if request.args.get('search_status') == 'registered' else '' }}>Registered</option>
                             <option value="approved" {{ 'selected' if request.args.get('search_status') == 'approved' else '' }}>Approved</option>
                             <option value="checked_in" {{ 'selected' if request.args.get('search_status') == 'checked_in' else '' }}>Checked In</option>
@@ -3854,9 +3863,10 @@ def visitors_list():
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Time Range</label>
                         <select id="timeRange" class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                            <option value="all" {{ 'selected' if request.args.get('time_range') == 'all' else '' }}>All Time</option>
+                            <option value="all" {{ 'selected' if request.args.get('time_range', 'all') == 'all' else '' }}>All Time</option>
                             <option value="today" {{ 'selected' if request.args.get('time_range') == 'today' else '' }}>Today</option>
-                           
+                            <option value="week" {{ 'selected' if request.args.get('time_range') == 'week' else '' }}>This Week</option>
+                            <option value="month" {{ 'selected' if request.args.get('time_range') == 'month' else '' }}>This Month</option>
                             <option value="<1hr" {{ 'selected' if request.args.get('time_range') == '<1hr' else '' }}>Last 1 Hour</option>
                             <option value="<3hr" {{ 'selected' if request.args.get('time_range') == '<3hr' else '' }}>Last 3 Hours</option>
                             <option value="<6hr" {{ 'selected' if request.args.get('time_range') == '<6hr' else '' }}>Last 6 Hours</option>
@@ -4019,7 +4029,8 @@ def visitors_list():
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Visits</th>
                                 <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Blacklist</th>
-                                
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             {% for visitor in paginated_visitors %}
@@ -4034,7 +4045,7 @@ def visitors_list():
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="flex items-center">
                                         <div class="flex-shrink-0 h-10 w-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold">
-                                            {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+                                            {{ visitor.name[0]|upper if visitor.name and visitor.name != 'N/A' else '?' }}
                                         </div>
                                         <div class="ml-4">
                                             <div class="text-sm font-medium text-gray-900">{{ visitor.name }}</div>
@@ -4083,8 +4094,8 @@ def visitors_list():
                                     </div>
                                     {% endif %}
                                 </td>
-
-                                        <!-- Quick Status Actions -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center gap-2">
                                         {% if visitor.status == 'Registered' %}
                                         <button onclick="approveVisitor('{{ visitor.id }}')" 
                                                 class="text-emerald-600 hover:text-emerald-900 transition-colors" 
@@ -4097,7 +4108,6 @@ def visitors_list():
                                             <i class="fas fa-times"></i>
                                         </button>
                                         {% endif %}
-                                        
                                         {% if visitor.status == 'Approved' %}
                                         <button onclick="checkinVisitor('{{ visitor.id }}')" 
                                                 class="text-blue-600 hover:text-blue-900 transition-colors" 
@@ -4105,7 +4115,6 @@ def visitors_list():
                                             <i class="fas fa-sign-in-alt"></i>
                                         </button>
                                         {% endif %}
-                                        
                                         {% if visitor.status == 'Checked In' %}
                                         <button onclick="checkoutVisitor('{{ visitor.id }}')" 
                                                 class="text-purple-600 hover:text-purple-900 transition-colors" 
@@ -4113,8 +4122,6 @@ def visitors_list():
                                             <i class="fas fa-sign-out-alt"></i>
                                         </button>
                                         {% endif %}
-                                        
-                                        
                                     </div>
                                 </td>
                             </tr>
@@ -4168,6 +4175,7 @@ def visitors_list():
     """
     return render_template_string(VISITORS_HTML, 
                             paginated_visitors=paginated_visitors, 
+                            all_filtered_visitors=filtered_visitors,
                             total_visitors=total_visitors, 
                             registered_count=registered_count, 
                             approved_count=approved_count,
@@ -4192,7 +4200,7 @@ def _build_visitor_list_from_raw(all_visitors):
     if not all_visitors:
         return visitors_data
     for vid, data in all_visitors.items():
-        basic_info = data.get('basic_info', {})
+        basic_info = data.get('basic_info') or {}
         visitor_name = basic_info.get('name', 'N/A')
         visitor_contact = basic_info.get('contact', 'N/A')
         visitor_email = basic_info.get('email', 'N/A')
@@ -4200,7 +4208,7 @@ def _build_visitor_list_from_raw(all_visitors):
         raw_bl = basic_info.get('blacklisted', 'no')
         blacklisted = raw_bl is True or (isinstance(raw_bl, str) and raw_bl.strip().lower() in ['yes', 'true', '1'])
         blacklist_reason = basic_info.get('blacklist_reason', 'No reason provided')
-        visits = data.get('visits', {})
+        visits = data.get('visits') or {}
         current_status = 'Registered'
         check_in_time = None
         check_out_time = None
@@ -4224,7 +4232,7 @@ def _build_visitor_list_from_raw(all_visitors):
             if sorted_visits:
                 sorted_visits.sort(key=lambda x: x[0], reverse=True)
                 last_visit_time, recent_visit_id, recent_visit_data = sorted_visits[0]
-                status_from_visit = recent_visit_data.get('status', 'Registered')
+                status_from_visit = recent_visit_data.get('status') or 'Registered'
                 if status_from_visit.lower() in ['checked_out', 'checked-out', 'checked out']:
                     current_status = 'Checked Out'
                 elif status_from_visit.lower() in ['checked_in', 'checked-in', 'checked in']:
@@ -4259,7 +4267,7 @@ def _build_visitor_list_from_raw(all_visitors):
                 duration = recent_visit_data.get('duration', 'N/A')
                 check_in_time = recent_visit_data.get('check_in_time')
                 check_out_time = recent_visit_data.get('check_out_time')
-        transactions = data.get('transactions', {})
+        transactions = data.get('transactions') or {}
         num_visits = len(visits) if visits else len(transactions) if isinstance(transactions, dict) else 0
         registered_at = 'N/A'
         if transactions:
@@ -4396,7 +4404,7 @@ def blacklist_page():
                                 <a href="{{ url_for('visitor_detail', visitor_id=visitor.id) }}" class="inline-flex items-center justify-center px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 text-sm font-medium">
                                     <i class="fas fa-user mr-2"></i>View full profile
                                 </a>
-                                <button type="button" onclick="removeFromBlacklist('{{ visitor.id }}')" class="inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium">
+                                <button type="button" class="remove-from-blacklist-btn inline-flex items-center justify-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm font-medium" data-visitor-id="{{ visitor.id|e }}">
                                     <i class="fas fa-user-check mr-2"></i>Remove from blacklist
                                 </button>
                             </div>
@@ -4421,24 +4429,27 @@ def blacklist_page():
         </div>
 
         <script>
-            async function removeFromBlacklist(visitorId) {
-                if (!confirm('Remove this visitor from the blacklist? They will be able to check in again.')) return;
-                try {
-                    const response = await fetch('/blacklist/' + visitorId, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ blacklisted: false, reason: '' })
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        window.location.reload();
-                    } else {
-                        alert('Error: ' + (data.message || 'Could not update blacklist.'));
+            document.querySelectorAll('.remove-from-blacklist-btn').forEach(btn => {
+                btn.addEventListener('click', async function() {
+                    const visitorId = this.getAttribute('data-visitor-id');
+                    if (!visitorId || !confirm('Remove this visitor from the blacklist? They will be able to check in again.')) return;
+                    try {
+                        const response = await fetch('/blacklist/' + encodeURIComponent(visitorId), {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ blacklisted: false, reason: '' })
+                        });
+                        const data = await response.json();
+                        if (data.success) {
+                            window.location.reload();
+                        } else {
+                            alert('Error: ' + (data.message || 'Could not update blacklist.'));
+                        }
+                    } catch (e) {
+                        alert('Error: Could not update blacklist.');
                     }
-                } catch (e) {
-                    alert('Error: Could not update blacklist.');
-                }
-            }
+                });
+            });
         </script>
     </body>
     </html>
@@ -4487,6 +4498,118 @@ def toggle_blacklist(visitor_id):
             'success': False,
             'message': f'Error updating blacklist status: {str(e)}'
         }), 500
+
+
+def _get_most_recent_visit_id(visitor_data):
+    """Return (visit_id, visit_data) for the most recent visit, or (None, None)."""
+    visits = visitor_data.get('visits') or {}
+    if not visits:
+        return None, None
+    sorted_visits = []
+    for vid, vdata in visits.items():
+        ts = vdata.get('created_at') or vdata.get('check_in_time')
+        if ts:
+            try:
+                dt = datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                sorted_visits.append((dt, vid, vdata))
+            except ValueError:
+                pass
+    if not sorted_visits:
+        return None, None
+    sorted_visits.sort(key=lambda x: x[0], reverse=True)
+    return sorted_visits[0][1], sorted_visits[0][2]
+
+
+@app.route('/visitor/<visitor_id>/approve', methods=['POST'])
+def visitor_approve(visitor_id):
+    """Set visitor status to Approved (most recent visit + top-level)."""
+    if USE_MOCK_DATA:
+        return jsonify({'success': True})
+    try:
+        ref = db.reference(f'visitors/{visitor_id}')
+        data = ref.get()
+        if not data:
+            return jsonify({'success': False, 'message': 'Visitor not found'}), 404
+        visit_id, _ = _get_most_recent_visit_id(data)
+        if visit_id:
+            ref.child('visits').child(visit_id).update({'status': 'Approved'})
+        ref.update({'status': 'Approved'})
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/visitor/<visitor_id>/reject', methods=['POST'])
+def visitor_reject(visitor_id):
+    """Set visitor status to Rejected."""
+    if USE_MOCK_DATA:
+        return jsonify({'success': True})
+    try:
+        ref = db.reference(f'visitors/{visitor_id}')
+        data = ref.get()
+        if not data:
+            return jsonify({'success': False, 'message': 'Visitor not found'}), 404
+        visit_id, _ = _get_most_recent_visit_id(data)
+        if visit_id:
+            ref.child('visits').child(visit_id).update({'status': 'Rejected'})
+        ref.update({'status': 'Rejected'})
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/visitor/<visitor_id>/checkin', methods=['POST'])
+def visitor_checkin(visitor_id):
+    """Set visitor status to Checked In, set check_in_time and expected_checkout_time."""
+    now = datetime.now()
+    checkout_at = now + timedelta(hours=2)
+    now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+    checkout_str = checkout_at.strftime('%Y-%m-%d %H:%M:%S')
+    if USE_MOCK_DATA:
+        return jsonify({'success': True})
+    try:
+        ref = db.reference(f'visitors/{visitor_id}')
+        data = ref.get()
+        if not data:
+            return jsonify({'success': False, 'message': 'Visitor not found'}), 404
+        visit_id, _ = _get_most_recent_visit_id(data)
+        if visit_id:
+            ref.child('visits').child(visit_id).update({
+                'status': 'Checked-In',
+                'check_in_time': now_str,
+                'expected_checkout_time': checkout_str
+            })
+        ref.update({
+            'status': 'Checked-In',
+            'check_in_time': now_str,
+            'expected_checkout_time': checkout_str
+        })
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+
+@app.route('/visitor/<visitor_id>/checkout', methods=['POST'])
+def visitor_checkout(visitor_id):
+    """Set visitor status to Checked Out, set check_out_time."""
+    now_str = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    if USE_MOCK_DATA:
+        return jsonify({'success': True})
+    try:
+        ref = db.reference(f'visitors/{visitor_id}')
+        data = ref.get()
+        if not data:
+            return jsonify({'success': False, 'message': 'Visitor not found'}), 404
+        visit_id, _ = _get_most_recent_visit_id(data)
+        if visit_id:
+            ref.child('visits').child(visit_id).update({
+                'status': 'Checked-Out',
+                'check_out_time': now_str
+            })
+        ref.update({'status': 'Checked-Out', 'check_out_time': now_str})
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
 
 
 @app.route('/api/occupancy', methods=['GET'])
@@ -4776,53 +4899,47 @@ def visitor_detail(visitor_id):
         </style>
         <script>
             // Blacklist functionality for visitor details page
-            async function toggleBlacklistDetail(visitorId, currentState) {
+            async function toggleBlacklistDetail(checkboxEl) {
+                const visitorId = checkboxEl.getAttribute('data-visitor-id');
+                const initialBlacklisted = checkboxEl.getAttribute('data-initial-blacklisted') === 'true';
                 let reason = '';
-                const newState = !currentState;
-                
+                const newState = checkboxEl.checked;
+
                 if (newState) {
-                    // Blacklisting - ask for reason
                     reason = prompt("Enter reason for blacklisting this visitor:");
                     if (reason === null) {
-                        return; // User clicked cancel
+                        checkboxEl.checked = initialBlacklisted;
+                        return;
                     }
                     if (!reason.trim()) {
                         alert("Reason is required for blacklisting.");
+                        checkboxEl.checked = initialBlacklisted;
                         return;
                     }
                 } else {
-                    // Unblacklisting - ask for confirmation
                     if (!confirm('Are you sure you want to remove this visitor from blacklist?')) {
+                        checkboxEl.checked = initialBlacklisted;
                         return;
                     }
                     reason = 'No reason provided';
                 }
-                
+
                 try {
-                    const response = await fetch(`/blacklist/${visitorId}`, {
+                    const response = await fetch('/blacklist/' + encodeURIComponent(visitorId), {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ 
-                            blacklisted: newState, 
-                            reason: reason 
-                        })
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ blacklisted: newState, reason: reason })
                     });
-                    
                     const result = await response.json();
-                    
                     if (result.success) {
                         showNotification(result.message, 'success');
-                        // Reload after a short delay to show the notification
-                        setTimeout(() => {
-                            location.reload();
-                        }, 1000);
+                        setTimeout(() => location.reload(), 1000);
                     } else {
                         throw new Error(result.message);
                     }
                 } catch (error) {
-                    showNotification(`Error: ${error.message}`, 'error');
+                    showNotification('Error: ' + error.message, 'error');
+                    checkboxEl.checked = initialBlacklisted;
                 }
             }
 
@@ -4860,8 +4977,8 @@ def visitor_detail(visitor_id):
             <div class="max-w-7xl mx-auto">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center space-x-4">
-                        <a href="/visitors" class="text-white hover:text-gray-200 transition-colors">
-                            <i class="fas fa-arrow-left text-xl"></i>
+                        <a href="/visitors" class="text-white hover:text-gray-200 transition-colors inline-flex items-center">
+                            <i class="fas fa-arrow-left text-xl mr-2"></i>Back to Visitors
                         </a>
                         <div>
                             <h1 class="text-3xl font-bold">Visitor Details</h1>
@@ -4890,7 +5007,7 @@ def visitor_detail(visitor_id):
                                      class="w-24 h-24 rounded-2xl object-cover border-4 border-white shadow-lg">
                                 {% else %}
                                 <div class="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold border-4 border-white shadow-lg">
-                                    {{ visitor.name[0]|upper if visitor.name != 'N/A' else '?' }}
+                                    {{ visitor.name[0]|upper if visitor.name and visitor.name != 'N/A' else '?' }}
                                 </div>
                                 {% endif %}
                                 <div class="absolute -bottom-2 -right-2 bg-white rounded-full p-1 shadow-lg">
@@ -5057,9 +5174,11 @@ def visitor_detail(visitor_id):
                                         {% if visitor.blacklisted %}BLACKLISTED{% else %}CLEAN{% endif %}
                                     </span>
                                     <label class="toggle-switch">
-                                        <input type="checkbox" 
+                                        <input type="checkbox" id="blacklist-toggle-detail"
                                                {{ 'checked' if visitor.blacklisted else '' }}
-                                               onchange="toggleBlacklistDetail('{{ visitor.id }}', {{ 'true' if visitor.blacklisted else 'false' }})">
+                                               data-visitor-id="{{ visitor.id|e }}"
+                                               data-initial-blacklisted="{{ 'true' if visitor.blacklisted else 'false' }}"
+                                               onchange="toggleBlacklistDetail(this)">
                                         <span class="toggle-slider"></span>
                                     </label>
                                 </div>
@@ -5276,6 +5395,9 @@ def feedback_analysis():
     </head>
     <body class="bg-gray-50 min-h-screen p-8">
         <div class="max-w-7xl mx-auto">
+            <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-2">
+                <i class="fas fa-arrow-left mr-1"></i>Back to Admin
+            </a>
             <h1 class="text-3xl font-bold text-gray-900 mb-8">Feedback Sentiment Analysis</h1>
             
             <!-- Sentiment Summary Cards -->
@@ -5332,8 +5454,35 @@ def feedback_analysis():
                 </p>
             </div>
 
-            
-              
+            <!-- Feedback List -->
+            {% if feedback_results %}
+            <div class="bg-white p-6 rounded-lg shadow mb-8 overflow-x-auto">
+                <h2 class="text-xl font-semibold mb-4">Recent Feedback</h2>
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Visitor</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Feedback</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sentiment</th>
+                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Time</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for r in feedback_results %}
+                        <tr>
+                            <td class="px-4 py-2 text-sm text-gray-900">{{ r.visitor_name }}</td>
+                            <td class="px-4 py-2 text-sm text-gray-600">{{ r.visitor_email }}</td>
+                            <td class="px-4 py-2 text-sm text-gray-700 max-w-md">{{ r.text }}</td>
+                            <td class="px-4 py-2"><span class="px-2 py-1 text-xs font-medium rounded {% if r.sentiment == 'Positive' %}bg-green-100 text-green-800{% elif r.sentiment == 'Negative' %}bg-red-100 text-red-800{% else %}bg-yellow-100 text-yellow-800{% endif %}">{{ r.sentiment }}</span></td>
+                            <td class="px-4 py-2 text-sm text-gray-500">{{ r.timestamp }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% endif %}
+
         </div>
 
         <script>
@@ -5390,18 +5539,13 @@ def feedback_analysis():
 # Add preprocessing to clean text
 def preprocess_feedback(text):
     # Remove extra whitespace, normalize text
-    text = ' '.join(text.split())
-    # Handle common issues
+    if not text:
+        return ""
+    text = ' '.join(str(text).split())
     if text.lower() in ['irrelevant', 'none', 'na', 'n/a']:
         return ""
     return text
 
-    # In your route:
-    text = preprocess_feedback(feedback_data.get('text', ''))
-    if text:  # Only analyze non-empty, relevant text
-        sentiment_label = sentiment_model.predict([text])[0]
-    else:
-        sentiment_label = "Neutral"  # or "Not Available"
 @app.route('/register', methods=['GET', 'POST'])
 def visitor_registration():
     token = request.args.get('token')
@@ -5790,10 +5934,13 @@ def employees_list():
         </style>
     </head>
     <body class="bg-gradient-to-br from-blue-50 to-gray-100 min-h-screen p-6">
-        <div class="max-w-8xl mx-auto">
+        <div class="max-w-7xl mx-auto">
             <!-- Header -->
             <div class="flex justify-between items-center mb-8">
                 <div>
+                    <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-2">
+                        <i class="fas fa-arrow-left mr-1"></i>Back to Admin
+                    </a>
                     <h1 class="text-4xl font-bold text-gray-900">Employee Analytics</h1>
                     <p class="text-gray-600 mt-2">Comprehensive employee and visitor management dashboard</p>
                 </div>
@@ -5910,7 +6057,7 @@ def employees_list():
                                     </div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-900">{{ emp.contact if emp.contact else 'N/A' }}</div>
+                                    <div class="text-sm text-gray-900">{{ emp.contact or emp.phone or 'N/A' }}</div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span class="status-badge bg-blue-100 text-blue-800">
@@ -5918,7 +6065,7 @@ def employees_list():
                                     </span>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
-                                    <div class="text-sm text-gray-900">{{ emp.role if emp.role else 'N/A' }}</div>
+                                    <div class="text-sm text-gray-900">{{ emp.role or emp.position or 'N/A' }}</div>
                                 </td>
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <div class="flex items-center">
@@ -6125,19 +6272,21 @@ def employees_list():
                 const rows = {{ employees|tojson }};
                 const analytics = {{ employee_analytics|tojson }};
                 
-                let csvContent = headers.join(',') + '\\n';
+                let csvContent = headers.join(',') + '\n';
                 
                 Object.entries(rows).forEach(([empId, emp]) => {
                     const visitorCount = analytics[empId] ? analytics[empId].visitor_count : 0;
+                    const role = emp.role || emp.position || '';
+                    const contact = emp.contact || emp.phone || '';
                     const row = [
-                        `"${emp.name}"`,
-                        `"${emp.email}"`,
-                        `"${emp.department}"`,
-                        `"${emp.role}"`,
-                        `"${emp.contact}"`,
+                        `"${(emp.name || '').replace(/"/g, '""')}"`,
+                        `"${(emp.email || '').replace(/"/g, '""')}"`,
+                        `"${(emp.department || '').replace(/"/g, '""')}"`,
+                        `"${role.replace(/"/g, '""')}"`,
+                        `"${contact.replace(/"/g, '""')}"`,
                         visitorCount
                     ];
-                    csvContent += row.join(',') + '\\n';
+                    csvContent += row.join(',') + '\n';
                 });
                 
                 const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -6163,8 +6312,130 @@ def employees_list():
                                 top_employee_name=top_employee_name,
                                 top_employee_count=top_employee_count,
                                 departments=departments)
+
+
+def _visitors_for_employee(emp_id, all_employees, all_visitors):
+    """Return list of visitor dicts for visitors linked to this employee (by visit or transaction)."""
+    emp_data = all_employees.get(emp_id) if all_employees else None
+    if not emp_data:
+        return [], None
+    employee_name = emp_data.get('name', '')
+    results = []
+    seen = set()
+    for visitor_id, visitor_data in (all_visitors or {}).items():
+        if visitor_id in seen:
+            continue
+        basic_info = visitor_data.get('basic_info', {})
+        visitor_name = basic_info.get('name', 'Unknown')
+        status = visitor_data.get('status', 'N/A')
+        purpose = '—'
+        linked = False
+        for visit_id, visit_data in visitor_data.get('visits', {}).items():
+            visit_employee_name = visit_data.get('employee_name', '')
+            p = visit_data.get('purpose', '')
+            if (visit_employee_name == employee_name or
+                (employee_name and employee_name.lower() in (p or '').lower()) or
+                (employee_name and employee_name.lower() in (visitor_name or '').lower())):
+                purpose = p or purpose
+                linked = True
+                break
+        if not linked:
+            for tx_id, tx_data in visitor_data.get('transactions', {}).items():
+                if tx_data.get('employee_name') == employee_name:
+                    linked = True
+                    break
+        if linked:
+            seen.add(visitor_id)
+            results.append({
+                'visitor_id': visitor_id,
+                'visitor_name': visitor_name,
+                'purpose': purpose,
+                'status': status,
+                'contact': basic_info.get('contact', '—')
+            })
+    return results, employee_name
+
+
+@app.route('/employee/visitors/<emp_id>')
+def employee_visitors_view(emp_id):
+    """Show visitors associated with this employee (eye icon from /employees)."""
+    if USE_MOCK_DATA:
+        all_employees = get_mock_employees()
+        all_visitors = get_mock_visitors()
+    else:
+        all_employees = (db.reference('employees').get() or {})
+        all_visitors = (db.reference('visitors').get() or {})
+    visitors_list, employee_name = _visitors_for_employee(emp_id, all_employees, all_visitors)
+    EMP_VISITORS_HTML = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Visitors for {{ employee_name }}</title>
+        <script src="https://cdn.tailwindcss.com"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    </head>
+    <body class="min-h-screen bg-gray-50 p-6">
+        <div class="max-w-4xl mx-auto">
+            <a href="{{ url_for('employees_list') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-4">
+                <i class="fas fa-arrow-left mr-1"></i>Back to Employees
+            </a>
+            <h1 class="text-2xl font-bold text-gray-900 mb-2">Visitors for {{ employee_name }}</h1>
+            <p class="text-gray-600 mb-6">Visitors linked to this employee (by visit or transaction).</p>
+            {% if visitors_list %}
+            <div class="bg-white rounded-xl shadow overflow-hidden">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Visitor</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Purpose</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contact</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for v in visitors_list %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-3 text-sm font-medium text-gray-900">{{ v.visitor_name }}</td>
+                            <td class="px-4 py-3 text-sm text-gray-600">{{ v.purpose }}</td>
+                            <td class="px-4 py-3"><span class="px-2 py-1 text-xs font-medium rounded bg-blue-100 text-blue-800">{{ v.status }}</span></td>
+                            <td class="px-4 py-3 text-sm text-gray-600">{{ v.contact }}</td>
+                            <td class="px-4 py-3"><a href="/visitor/{{ v.visitor_id }}" class="text-blue-600 hover:underline text-sm">View</a></td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="bg-white rounded-xl shadow p-8 text-center text-gray-500">
+                <i class="fas fa-users text-4xl text-gray-300 mb-3"></i>
+                <p>No visitors linked to this employee yet.</p>
+            </div>
+            {% endif %}
+        </div>
+    </body>
+    </html>
+    """
+    return render_template_string(EMP_VISITORS_HTML, visitors_list=visitors_list, employee_name=employee_name or 'Unknown')
+
+
 @app.route('/get_employee/<emp_id>')
 def get_employee(emp_id):
+    if USE_MOCK_DATA:
+        all_employees = get_mock_employees()
+        emp_data = all_employees.get(emp_id)
+        if not emp_data:
+            return jsonify({"error": "Employee not found"}), 404
+        # Map mock fields to form fields (role <-> position, contact <-> phone)
+        return jsonify({
+            'name': emp_data.get('name', ''),
+            'email': emp_data.get('email', ''),
+            'department': emp_data.get('department', ''),
+            'role': emp_data.get('position', emp_data.get('role', '')),
+            'contact': emp_data.get('phone', emp_data.get('contact', ''))
+        })
     emp_data = db.reference(f'employees/{emp_id}').get()
     if not emp_data:
         return jsonify({"error": "Employee not found"}), 404
@@ -6174,18 +6445,21 @@ def get_employee(emp_id):
 def add_employee():
     data = request.get_json()
     emp_id = str(uuid.uuid4())
-    db.reference(f'employees/{emp_id}').set(data)
+    if not USE_MOCK_DATA and FIREBASE_AVAILABLE:
+        db.reference(f'employees/{emp_id}').set(data)
     return jsonify({"success": True, "emp_id": emp_id})
 
 @app.route('/edit_employee/<emp_id>', methods=['POST'])
 def edit_employee(emp_id):
     data = request.get_json()
-    db.reference(f'employees/{emp_id}').update(data)
+    if not USE_MOCK_DATA and FIREBASE_AVAILABLE:
+        db.reference(f'employees/{emp_id}').update(data)
     return jsonify({"success": True})
 
 @app.route('/delete_employee/<emp_id>', methods=['POST'])
 def delete_employee(emp_id):
-    db.reference(f'employees/{emp_id}').delete()
+    if not USE_MOCK_DATA and FIREBASE_AVAILABLE:
+        db.reference(f'employees/{emp_id}').delete()
     return jsonify({"success": True})
 
 if __name__ == "__main__":
