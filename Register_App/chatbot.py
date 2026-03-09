@@ -12,7 +12,7 @@ GOOGLE_API_KEY = "AIzaSyBzf7V1q3f5g_5czJDPqNiD7LpENyj6FEc"
 genai.configure(api_key=GOOGLE_API_KEY)
 
 # System Name
-SYSTEM_NAME = "Office Workplace Intelligence Platform"
+SYSTEM_NAME = "Workplace Intelligence Platform with Hybrid Face–QR Authentication"
 
 # Verified and Structured Knowledge Base (The core of the bot's "training")
 # **This is the section you modify to "train" the bot with new facts and locations.**
@@ -78,7 +78,7 @@ if "chat" not in st.session_state:
     st.session_state.chat = model.start_chat(history=[
         {"role": "user", "parts": [{"text": SYSTEM_PROMPT}]},
         # Internal model response to the system prompt
-        {"role": "model", "parts": [{"text": "Understood. Ready to assist visitors with the Office Workplace Intelligence Platform."}]} 
+        {"role": "model", "parts": [{"text": "Understood. Ready to assist visitors with the Workplace Intelligence Platform with Hybrid Face–QR Authentication."}]} 
     ])
     
     # Initial message for display in the chat history
@@ -94,7 +94,7 @@ if "messages" not in st.session_state:
 # --- Page Header ---
 st.markdown(
     f"""
-    <h1 style="text-align: center; color: #2563eb;">Workplace Intelligence Assistant 🏢</h1>
+    <h1 style="text-align: center; color: #2563eb;">Workplace Intelligence Platform Assistant 🏢</h1>
     <p style="text-align: center; font-size: 18px;">Your personal guide to visitor registration, check-in, and premises navigation.</p>
     <hr style="border-color: #2563eb;">
     """,

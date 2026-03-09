@@ -1,8 +1,8 @@
-# Office Workplace Intelligence Platform: Hybrid Face–QR Authentication with Workspace Analytics
+# Workplace Intelligence Platform with Hybrid Face–QR Authentication
 
 ## Abstract
 
-This repository presents an **open-source Office Workplace Intelligence Platform** that combines secure visitor management with comprehensive workspace analytics. The system implements a **Hybrid Face–QR Visitor Authentication Protocol (HFQVAP)** that binds a per-visit QR token to biometric face verification through a five-state QR lifecycle with automatic invalidation on misuse. Beyond access control, the platform provides real-time building occupancy tracking, meeting room optimization, predictive visitor pattern analytics, and workspace utilization insights.
+This repository presents an **open-source Workplace Intelligence Platform with Hybrid Face–QR Authentication** that combines secure visitor management with comprehensive workspace analytics. The system implements a **Hybrid Face–QR Visitor Authentication Protocol (HFQVAP)** that binds a per-visit QR token to biometric face verification through a five-state QR lifecycle with automatic invalidation on misuse. Beyond access control, the platform provides real-time building occupancy tracking, meeting room optimization, predictive visitor pattern analytics, and workspace utilization insights.
 
 Unlike commercial solutions (Envoy, Proxyclick) that are proprietary and cloud-based, this platform is fully open-source, self-hosted, and research-focused—making it ideal for academic institutions and privacy-conscious organizations. The system is configurable across three protocol variants (hybrid, face-only, QR-only) under the same deployment, enabling direct comparison of security properties. All gate events are logged with protocol metadata for post-hoc analysis and workspace intelligence.
 

@@ -1,6 +1,6 @@
 # Project Structure & Organization
 
-This document describes the organised layout of the **Office Workplace Intelligence Platform** and lists files that are redundant or archived.
+This document describes the organised layout of the **Workplace Intelligence Platform with Hybrid Face–QR Authentication** and lists files that are redundant or archived.
 
 ---
 

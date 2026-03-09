@@ -1,4 +1,4 @@
-# Complete Testing Guide for Office Workplace Intelligence Platform
+# Complete Testing Guide for Workplace Intelligence Platform with Hybrid Face–QR Authentication
 
 This guide will help you set up and test the entire platform step by step.
 

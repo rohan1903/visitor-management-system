@@ -672,7 +672,7 @@ def index():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Admin Panel - Office Workplace Intelligence Platform</title>
+        <title>Admin Panel - Workplace Intelligence Platform with Hybrid Face–QR Authentication</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -732,7 +732,7 @@ def index():
                     <i class="fas fa-shield-alt text-white text-3xl"></i>
                 </div>
                 <h1 class="text-4xl md:text-5xl font-bold text-white mb-3">Admin Dashboard</h1>
-                <p class="text-white/80 text-lg">Workplace Intelligence Control Center</p>
+                <p class="text-white/80 text-lg">Workplace Intelligence Platform</p>
             </div>
 
             <!-- Main Navigation Cards -->
@@ -872,7 +872,7 @@ def index():
             <div class="text-center mt-8">
                 <p class="text-white/60 text-sm">
                     <i class="fas fa-shield-alt mr-2"></i>
-                    Office Workplace Intelligence Platform v2.0
+                    Workplace Intelligence Platform with Hybrid Face–QR Authentication v2.0
                 </p>
             </div>
         </div>
@@ -917,7 +917,7 @@ def upload_invitations_page():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Upload Invitations - Workplace Intelligence</title>
+        <title>Upload Invitations - Workplace Intelligence Platform</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     </head>
@@ -3963,7 +3963,7 @@ def visitors_list():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Workplace Intelligence | Admin Dashboard</title>
+        <title>Workplace Intelligence Platform | Admin Dashboard</title>
         <script src="https://cdn.tailwindcss.com"></script>
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <style>
@@ -4011,7 +4011,7 @@ def visitors_list():
                     <a href="{{ url_for('index') }}" class="text-gray-500 hover:text-gray-700 text-sm inline-flex items-center mb-1">
                         <i class="fas fa-arrow-left mr-1"></i>Back to Admin
                     </a>
-                    <h1 class="text-3xl font-bold text-gray-900">Workplace Intelligence</h1>
+                    <h1 class="text-3xl font-bold text-gray-900">Workplace Intelligence Platform</h1>
                     <p class="text-gray-600">Manage and track all visitor activities</p>
                 </div>
                 <div class="flex flex-wrap gap-3">
@@ -6373,7 +6373,7 @@ def api_notify_host_time_exceeded():
             return jsonify({'success': False, 'message': f'Host "{employee_name}" has no email on file'}), 400
         visitor_name = visitor_data.get('name', 'Unknown')
         subject = "Time exceeded: visitor still on premises"
-        body = f"Hello,\n\nVisitor \"{visitor_name}\" has exceeded their expected stay and is still on premises.\n\nPlease follow up as needed.\n\n— Workplace Intelligence Admin"
+        body = f"Hello,\n\nVisitor \"{visitor_name}\" has exceeded their expected stay and is still on premises.\n\nPlease follow up as needed.\n\n— Workplace Intelligence Platform Admin"
         if send_notification_email(host_email, subject, body):
             return jsonify({'success': True, 'message': f'Notification sent to {host_email}'})
         return jsonify({'success': False, 'message': 'Email could not be sent (check SMTP config)'}), 500

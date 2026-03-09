@@ -16,7 +16,7 @@ Use this checklist to test **all** Admin dashboard features end-to-end. Run the 
 
 | # | Action | Expected |
 |---|--------|----------|
-| 1.1 | Open http://localhost:5000/ | Page loads with "Admin Dashboard" and "Workplace Intelligence Control Center" |
+| 1.1 | Open http://localhost:5000/ | Page loads with "Admin Dashboard" and "Workplace Intelligence Platform" |
 | 1.2 | Click **Visitors** card | Redirects to `/visitors` |
 | 1.3 | Go back, click **Analytics Dashboard** | Redirects to `/dashboard` |
 | 1.4 | Go back, click **Bulk Invitations** | Redirects to `/upload_invitations` |

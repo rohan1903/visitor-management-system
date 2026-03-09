@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup Verification Script for Office Workplace Intelligence Platform
+Setup Verification Script for Workplace Intelligence Platform with Hybrid Face–QR Authentication
 This script checks if your environment is ready for testing.
 """
 
@@ -239,7 +239,7 @@ def check_directories():
 def main():
     """Run all checks"""
     print("\n" + "="*60)
-    print("Office Workplace Intelligence Platform - Setup Verification")
+    print("Workplace Intelligence Platform with Hybrid Face–QR Authentication - Setup Verification")
     print("="*60)
     
     results = {

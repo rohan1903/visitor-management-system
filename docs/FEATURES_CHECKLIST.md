@@ -1,6 +1,6 @@
-# Office Workplace Intelligence — Features Checklist
+# Workplace Intelligence Platform — Features Checklist
 
-This document lists features to be added so the project matches the **Office Workplace Intelligence Platform** scope described in the README.
+This document lists features to be added so the project matches the **Workplace Intelligence Platform with Hybrid Face–QR Authentication** scope described in the README.
 
 ---
 
