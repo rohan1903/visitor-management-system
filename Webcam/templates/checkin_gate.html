@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; }
+        body { font-family: 'Inter', sans-serif; background-color: #f7f9fb; word-spacing: 0.05em; }
         .camera-container { width: 100%; max-width: 480px; margin: auto; position: relative; }
         #video-feed {
             width: 100%; height: auto; border-radius: 12px; transform: scaleX(-1);
@@ -16,7 +16,7 @@
         #message-box {
             min-height: 80px; display: flex; align-items: center; justify-content: center;
             font-weight: 600; font-size: 1.1rem; border-radius: 8px; padding: 16px 20px;
-            line-height: 1.5; text-align: center; word-spacing: normal;
+            line-height: 1.5; text-align: center; word-spacing: 0.25em; white-space: normal;
         }
         .message-success  { background-color: #d1fae5; color: #065f46; border: 2px solid #34d399; }
         .message-error    { background-color: #fee2e2; color: #991b1b; border: 2px solid #f87171; }
@@ -28,7 +28,7 @@
             background: linear-gradient(90deg, transparent, #0d6efd, transparent);
             animation: scan 3s infinite linear; box-shadow: 0 0 10px #0d6efd;
         }
-        .qr-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; transition: all 0.3s ease; }
+        .qr-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 999px; font-size: 0.85rem; font-weight: 600; transition: all 0.3s ease; word-spacing: 0.25em; }
         .qr-badge.waiting  { background: #fef3c7; color: #92400e; }
         .qr-badge.detected { background: #d1fae5; color: #065f46; }
         .action-btn {
