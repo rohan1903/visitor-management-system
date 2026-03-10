@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
 One-time script: Delete ALL visitor data from Firebase Realtime Database.
-Admin dashboard and Register_App will show no visitors after this.
+Admin dashboard and registration app will show no visitors after this.
 
 Run from project root:
   python clear_firebase_visitors.py
 
-Uses: Admin/firebase_credentials.json and FIREBASE_DATABASE_URL in Admin/.env
+Uses: admin/firebase_credentials.json and FIREBASE_DATABASE_URL in admin/.env
 Leaves: employees, meeting_rooms, invitations (unchanged).
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Admin"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "admin"))
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(__file__), "Admin", ".env"))
+    load_dotenv(os.path.join(os.path.dirname(__file__), "admin", ".env"))
 except ImportError:
     pass
 
@@ -25,14 +25,14 @@ from firebase_admin import credentials, db
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    cred_path = os.path.join(base, "Admin", "firebase_credentials.json")
+    cred_path = os.path.join(base, "admin", "firebase_credentials.json")
     if not os.path.exists(cred_path):
-        print("ERROR: Admin/firebase_credentials.json not found.")
+        print("ERROR: admin/firebase_credentials.json not found.")
         sys.exit(1)
 
     database_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip().rstrip("/")
     if not database_url:
-        print("ERROR: FIREBASE_DATABASE_URL not set. Set it in Admin/.env")
+        print("ERROR: FIREBASE_DATABASE_URL not set. Set it in admin/.env")
         sys.exit(1)
     if not database_url.startswith("https://"):
         database_url = "https://visitor-management-8f5b4-default-rtdb.firebaseio.com"
@@ -52,7 +52,7 @@ def main():
 
     visitors_ref.delete()
     print(f"Deleted all visitor data ({count} visitor(s)) from Firebase.")
-    print("Admin dashboard and Register_App will show no visitors. Register a new visitor to test QR email on approve.")
+    print("Admin dashboard and registration app will show no visitors. Register a new visitor to test QR email on approve.")
 
 
 if __name__ == "__main__":

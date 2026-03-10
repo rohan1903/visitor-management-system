@@ -42,18 +42,18 @@ echo "=========================================="
 echo ""
 echo "You need to run 3 applications in SEPARATE terminal windows:"
 echo ""
-echo "Terminal 1 - Register App (Port 5001):"
-echo "  cd Register_App"
+echo "Terminal 1 - Registration App (Port 5001):"
+echo "  cd registration"
 echo "  python3 app.py"
 echo "  → Access at: http://localhost:5001"
 echo ""
 echo "Terminal 2 - Admin Dashboard (Port 5000):"
-echo "  cd Admin"
+echo "  cd admin"
 echo "  python3 app.py"
 echo "  → Access at: http://localhost:5000"
 echo ""
-echo "Terminal 3 - Webcam Check-in (Port 5002):"
-echo "  cd Webcam"
+echo "Terminal 3 - Gate Check-in (Port 5002):"
+echo "  cd gate"
 echo "  python3 app.py"
 echo "  → Access at: http://localhost:5002"
 echo ""
@@ -68,11 +68,10 @@ echo "Press Ctrl+C to exit this script"
 echo ""
 
 # Ask if user wants to start apps
-read -p "Do you want to start Register App now? (y/n): " -n 1 -r
+read -p "Do you want to start Registration App now? (y/n): " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]]; then
-    echo "Starting Register App..."
-    cd Register_App
+    echo "Starting Registration App..."
+    cd registration
     python3 app.py
 fi
-

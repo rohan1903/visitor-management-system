@@ -62,7 +62,7 @@ uploads/
 **/uploads/
 uploads_reg/
 **/uploads_reg/
-Register_App/debug_frames/
+registration/debug_frames/
 
 # Large model files (excluded due to GitHub size limits)
 *.pkl
@@ -98,6 +98,9 @@ logs/
 *.png
 !**/templates/**/*.png
 
-# Webcam debug frames (no-face snapshots)
-Webcam/debug_frames/
+# Gate debug frames (no-face snapshots)
+gate/debug_frames/
+
+# Team setup instructions (contains project-specific credentials)
+TEAM_SETUP_INSTRUCTIONS.txt
 

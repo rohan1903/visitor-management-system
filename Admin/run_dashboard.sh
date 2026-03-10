@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "Admin Dashboard - Setup & Run"
+echo "Admin Dashboard - Setup & Run (run from admin/ directory)"
 echo "=========================================="
 echo ""
 

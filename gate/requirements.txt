@@ -1,0 +1,14 @@
+# Core + face recognition (REQUIRED for gate)
+flask
+firebase-admin
+numpy
+opencv-python
+cmake
+dlib
+# Optional: speech / other
+openai-whisper @ git+https://github.com/openai/whisper.git
+sounddevice
+soundfile
+torch
+# insightface  # requires C++ Build Tools; not used in code
+onnxruntime

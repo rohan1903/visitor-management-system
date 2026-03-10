@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workplace Intelligence Platform - Employee Action Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1);
+        }
+        .status-badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-approved {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .status-rejected {
+            background-color: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+        .status-pending {
+            background-color: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+        }
+        .modal-overlay {
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(4px);
+        }
+        .photo-placeholder {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+        .detail-card {
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+        .detail-card:hover {
+            transform: translateX(4px);
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-slate-100 min-h-screen py-8 px-4">
+    <div class="max-w-2xl mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
+                <i class="fas fa-user-check text-2xl text-blue-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Visitor Approval</h1>
+            <p class="text-gray-600">Review and manage visitor requests</p>
+        </div>
+
+        <!-- Main Container -->
+        <div class="glass-effect rounded-2xl shadow-xl border border-gray-100 overflow-hidden card-hover">
+            <div class="p-8">
+                <!-- Photo Section -->
+                <div class="text-center mb-8">
+                    <div class="inline-block p-4 bg-white rounded-2xl shadow-lg border border-gray-200">
+                        {% if photo_url %}
+                            <img src="{{ photo_url }}" alt="Visitor Photo" 
+                                 class="w-48 h-48 object-cover rounded-xl shadow-md"
+                                 onerror="this.style.display='none'; document.getElementById('no-photo-fallback').style.display='block';">
+                            <div id="no-photo-fallback" class="hidden">
+                                <div class="w-48 h-48 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                    <div class="text-center">
+                                        <i class="fas fa-camera text-3xl mb-2 opacity-70"></i>
+                                        <p class="text-sm font-medium">No Photo Available</p>
+                                    </div>
+                                </div>
+                            </div>
+                        {% else %}
+                            <div class="w-48 h-48 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                <div class="text-center">
+                                    <i class="fas fa-camera text-3xl mb-2 opacity-70"></i>
+                                    <p class="text-sm font-medium">No Photo Available</p>
+                                </div>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Visitor Details Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                    <div class="detail-card bg-blue-50 border-l-blue-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-blue-700 mb-1">Visitor ID</label>
+                        <span class="text-lg font-mono text-gray-800">{{ visitor_id }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-slate-50 border-l-slate-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-slate-700 mb-1">Visit ID</label>
+                        <span class="text-lg font-mono text-gray-800">{{ latest_visit_id }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-green-50 border-l-green-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-green-700 mb-1">Purpose</label>
+                        <span class="text-lg text-gray-800">{{ purpose }}</span>
+                    </div>
+                    
+                    <div class="detail-card bg-orange-50 border-l-orange-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-orange-700 mb-1">Status</label>
+                        <span class="status-badge status-{{ status.lower() }}">{{ status }}</span>
+                    </div>
+                    
+                    {% if email %}
+                    <div class="detail-card bg-purple-50 border-l-purple-500 p-4 rounded-lg">
+                        <label class="block text-sm font-semibold text-purple-700 mb-1">Email</label>
+                        <span class="text-lg text-gray-800">{{ email }}</span>
+                    </div>
+                    {% endif %}
+
+                    <div class="detail-card bg-blue-50 border-l-blue-500 p-4 rounded-lg {% if not email %}md:col-span-2{% endif %}">
+                        <label class="block text-sm font-semibold text-blue-700 mb-1">Visit Date</label>
+                        <span class="text-lg text-gray-800">{{ visit_date }}</span>
+                    </div>
+                </div>
+
+                <!-- Loading Indicator -->
+                <div id="loading" class="hidden flex items-center justify-center p-4 bg-blue-50 rounded-lg mb-6">
+                    <div class="flex items-center space-x-3">
+                        <div class="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+                        <span class="text-blue-700 font-medium">Processing your request...</span>
+                    </div>
+                </div>
+
+                <!-- Already-actioned notice -->
+                {% if status.lower() in ['approved', 'rejected', 'rescheduled'] %}
+                <div class="mb-6 p-4 rounded-lg {% if status.lower() == 'approved' %}bg-green-50 border border-green-200{% elif status.lower() == 'rejected' %}bg-red-50 border border-red-200{% else %}bg-blue-50 border border-blue-200{% endif %}">
+                    <p class="text-sm font-medium {% if status.lower() == 'approved' %}text-green-700{% elif status.lower() == 'rejected' %}text-red-700{% else %}text-blue-700{% endif %}">
+                        <i class="fas fa-info-circle mr-1"></i>
+                        This visit has already been <strong>{{ status.lower() }}</strong>. You can still change the decision below.
+                    </p>
+                </div>
+                {% endif %}
+
+                <!-- Action Buttons -->
+                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                    <button onclick="approveVisit('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-check-circle"></i>
+                        <span>Approve</span>
+                    </button>
+                    
+                    <button onclick="showRejectModal('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-times-circle"></i>
+                        <span>Reject</span>
+                    </button>
+                    
+                    <button onclick="showRescheduleModal('{{ visitor_id }}', '{{ latest_visit_id }}')" 
+                            class="flex items-center justify-center space-x-2 bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105">
+                        <i class="fas fa-calendar-alt"></i>
+                        <span>Reschedule</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reject Modal -->
+    <div id="rejectModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeRejectModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-4">
+            <div class="glass-effect rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-times-circle text-red-600 text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800">Reject Visit</h3>
+                        </div>
+                        <button onclick="closeRejectModal()" class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg transition-colors">
+                            <i class="fas fa-times text-gray-500"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="mb-4">
+                        <label for="rejectionReason" class="block text-sm font-semibold text-gray-700 mb-2">
+                            Reason for Rejection <span class="text-red-500">*</span>
+                        </label>
+                        <textarea id="rejectionReason" rows="4" 
+                                  class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all duration-200"
+                                  placeholder="Please provide a clear reason for rejecting this visit..."></textarea>
+                    </div>
+                    <div class="flex space-x-3">
+                        <button onclick="closeRejectModal()" 
+                                class="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Cancel
+                        </button>
+                        <button onclick="rejectVisit()" 
+                                class="flex-1 px-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Submit Rejection
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Reschedule Modal -->
+    <div id="rescheduleModal" class="fixed inset-0 z-50 hidden">
+        <div class="modal-overlay absolute inset-0" onclick="closeRescheduleModal()"></div>
+        <div class="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-full max-w-md p-4">
+            <div class="glass-effect rounded-2xl shadow-2xl border border-gray-200 overflow-hidden">
+                <div class="p-6 border-b border-gray-200">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                                <i class="fas fa-calendar-alt text-blue-600 text-lg"></i>
+                            </div>
+                            <h3 class="text-xl font-bold text-gray-800">Reschedule Visit</h3>
+                        </div>
+                        <button onclick="closeRescheduleModal()" class="w-8 h-8 flex items-center justify-center hover:bg-gray-100 rounded-lg transition-colors">
+                            <i class="fas fa-times text-gray-500"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-6">
+                    <div class="space-y-4">
+                        <div>
+                            <label for="newVisitDate" class="block text-sm font-semibold text-gray-700 mb-2">
+                                New Visit Date <span class="text-red-500">*</span>
+                            </label>
+                            <input type="date" id="newVisitDate" 
+                                   class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200">
+                        </div>
+                        <div>
+                            <label for="rescheduleReason" class="block text-sm font-semibold text-gray-700 mb-2">
+                                Reason for Rescheduling
+                            </label>
+                            <textarea id="rescheduleReason" rows="4" 
+                                      class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200"
+                                      placeholder="Optional: Provide a reason for rescheduling..."></textarea>
+                        </div>
+                    </div>
+                    <div class="flex space-x-3 mt-6">
+                        <button onclick="closeRescheduleModal()" 
+                                class="flex-1 px-4 py-3 bg-gray-500 hover:bg-gray-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Cancel
+                        </button>
+                        <button onclick="rescheduleVisit()" 
+                                class="flex-1 px-4 py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-xl font-semibold transition-all duration-200">
+                            Reschedule
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentVisitorId = '';
+        let currentVisitId = '';
+
+        function showRejectModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            document.getElementById('rejectModal').classList.remove('hidden');
+        }
+
+        function closeRejectModal() {
+            document.getElementById('rejectModal').classList.add('hidden');
+            document.getElementById('rejectionReason').value = '';
+        }
+
+        function showRescheduleModal(visitorId, visitId) {
+            currentVisitorId = visitorId;
+            currentVisitId = visitId;
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('newVisitDate').min = today;
+            document.getElementById('rescheduleModal').classList.remove('hidden');
+        }
+
+        function closeRescheduleModal() {
+            document.getElementById('rescheduleModal').classList.add('hidden');
+            document.getElementById('newVisitDate').value = '';
+            document.getElementById('rescheduleReason').value = '';
+        }
+
+        function showLoading() {
+            document.getElementById('loading').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').classList.add('hidden');
+        }
+
+        function approveVisit(visitorId, visitId) {
+            if (confirm('Are you sure you want to APPROVE this visit?')) {
+                showLoading();
+                
+                fetch(`/employee_action_approve/${visitorId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ visit_id: visitId })
+                })
+                .then(response => {
+                    const contentType = response.headers.get('content-type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Server returned non-JSON response');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    hideLoading();
+                    if (data.status === "success") {
+                        alert(data.message);
+                        location.reload();
+                    } else {
+                        alert('Error: ' + (data.message || 'Action failed'));
+                    }
+                })
+                .catch(error => {
+                    hideLoading();
+                    console.error('Error:', error);
+                    alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+                });
+            }
+        }
+
+        function rejectVisit() {
+            const rejectionReason = document.getElementById('rejectionReason').value;
+            
+            if (!rejectionReason.trim()) {
+                alert('Please provide a reason for rejection');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reject/${currentVisitorId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    rejection_reason: rejectionReason
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRejectModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        function rescheduleVisit() {
+            const newVisitDate = document.getElementById('newVisitDate').value;
+            const rescheduleReason = document.getElementById('rescheduleReason').value;
+            
+            if (!newVisitDate) {
+                alert('Please select a new visit date');
+                return;
+            }
+            
+            showLoading();
+            
+            fetch(`/employee_action_reschedule/${currentVisitorId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    visit_id: currentVisitId,
+                    new_visit_date: newVisitDate,
+                    reschedule_reason: rescheduleReason || "No reason provided"
+                })
+            })
+            .then(response => {
+                const contentType = response.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    throw new Error('Server returned non-JSON response');
+                }
+                return response.json();
+            })
+            .then(data => {
+                hideLoading();
+                if (data.status === "success") {
+                    alert(data.message);
+                    closeRescheduleModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + (data.message || 'Action failed'));
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                console.error('Error:', error);
+                alert('Error: Server returned an unexpected response. Please check if the endpoint exists.');
+            });
+        }
+
+        window.onclick = function(event) {
+            const rejectModal = document.getElementById('rejectModal');
+            const rescheduleModal = document.getElementById('rescheduleModal');
+            if (event.target === rejectModal) closeRejectModal();
+            if (event.target === rescheduleModal) closeRescheduleModal();
+        }
+    </script>
+</body>
+</html>

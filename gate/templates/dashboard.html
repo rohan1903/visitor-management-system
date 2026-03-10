@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Workplace Intelligence Platform - Visitor Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-50 min-h-screen">
+  <div class="max-w-5xl mx-auto px-4 py-8">
+    <div class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold text-gray-900">Registered Visitors</h1>
+        <p class="text-sm text-gray-500 mt-1">Live data from Firebase Realtime Database</p>
+      </div>
+      <a href="/" class="text-gray-500 hover:text-gray-700 text-sm"><i class="fas fa-home mr-1"></i>Home</a>
+    </div>
+    <div id="visitor-container" class="space-y-4">
+      <p class="text-gray-400 text-center py-12">Loading visitors&hellip;</p>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-database-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {{ firebase_config | tojson }};
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+    const container = document.getElementById('visitor-container');
+
+    function esc(str) {
+      const el = document.createElement('span');
+      el.textContent = str;
+      return el.innerHTML;
+    }
+
+    function getLatestVisit(visits) {
+      if (!visits || typeof visits !== 'object') return null;
+      const ids = Object.keys(visits).sort().reverse();
+      return ids.length ? visits[ids[0]] : null;
+    }
+
+    db.ref("visitors").on("value", snapshot => {
+      const data = snapshot.val();
+      container.innerHTML = "";
+      if (!data) {
+        container.innerHTML = '<p class="text-gray-400 text-center py-12">No visitors found.</p>';
+        return;
+      }
+      Object.keys(data).forEach(key => {
+        const visitor = data[key];
+        const basic = visitor.basic_info || {};
+        const name = basic.name || 'Unknown';
+        const email = basic.contact || basic.email || 'N/A';
+        const photoUrl = basic.photo_url || '';
+        const latest = getLatestVisit(visitor.visits);
+        const purpose = latest ? (latest.purpose || 'N/A') : 'N/A';
+        const duration = latest ? (latest.duration || 'N/A') : 'N/A';
+        const status = latest ? (latest.status || 'N/A') : (visitor.status || 'N/A');
+
+        const div = document.createElement("div");
+        div.className = "bg-white rounded-xl border border-gray-200 shadow-sm p-5 flex items-start gap-4";
+        div.innerHTML = `
+          ${photoUrl
+            ? `<img src="${esc(photoUrl)}" alt="${esc(name)}" class="w-16 h-16 rounded-lg object-cover border border-gray-200 flex-shrink-0"
+                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+               <div class="w-16 h-16 rounded-lg bg-gray-100 items-center justify-center text-gray-400 flex-shrink-0" style="display:none"><i class="fas fa-user text-xl"></i></div>`
+            : `<div class="w-16 h-16 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 flex-shrink-0"><i class="fas fa-user text-xl"></i></div>`
+          }
+          <div class="min-w-0">
+            <h3 class="font-semibold text-gray-900 truncate">${esc(name)}</h3>
+            <p class="text-sm text-gray-500 truncate">${esc(email)}</p>
+            <div class="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-600">
+              <span><strong>Purpose:</strong> ${esc(purpose)}</span>
+              <span><strong>Duration:</strong> ${esc(duration)}</span>
+              <span><strong>Status:</strong> ${esc(status)}</span>
+            </div>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    });
+  </script>
+</body>
+</html>

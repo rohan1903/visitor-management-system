@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workplace Intelligence Platform - Check-In Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        .glass-effect {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+        }
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        .card-hover:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+        .status-badge {
+            padding: 6px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .status-registered {
+            background-color: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+        }
+        .status-approved {
+            background-color: #dcfce7;
+            color: #166534;
+            border: 1px solid #bbf7d0;
+        }
+        .status-checked-in {
+            background-color: #f0f9ff;
+            color: #0369a1;
+            border: 1px solid #7dd3fc;
+        }
+        .photo-placeholder {
+            background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+        }
+        .detail-card {
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+        .detail-card:hover {
+            transform: translateX(4px);
+        }
+        .alert-success {
+            background: linear-gradient(135deg, #dcfce7, #bbf7d0);
+            border-left: 4px solid #16a34a;
+        }
+        .alert-error {
+            background: linear-gradient(135deg, #fee2e2, #fecaca);
+            border-left: 4px solid #dc2626;
+        }
+        .warning-box {
+            background: linear-gradient(135deg, #fef3c7, #fde68a);
+            border-left: 4px solid #d97706;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 via-slate-50 to-blue-100 min-h-screen py-8 px-4">
+    <div class="max-w-lg mx-auto">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <div class="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-lg mb-4">
+                <i class="fas fa-door-open text-3xl text-blue-600"></i>
+            </div>
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">Check-In Portal</h1>
+            <p class="text-gray-600">Complete your visit with facial verification</p>
+        </div>
+
+        <!-- Main Container -->
+        <div class="glass-effect rounded-2xl shadow-xl border border-gray-100 overflow-hidden card-hover">
+            <!-- Email Status Alert -->
+            {% if email_status == 'failure' %}
+            <div class="alert-error p-4 border-b border-red-200">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-exclamation-circle text-red-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-red-800">Email Not Sent</h3>
+                        <p class="text-red-700 text-sm">{{ email_message }}</p>
+                    </div>
+                </div>
+            </div>
+            {% elif email_status == 'success' %}
+            <div class="alert-success p-4 border-b border-green-200">
+                <div class="flex items-center space-x-3">
+                    <div class="w-10 h-10 bg-green-100 rounded-xl flex items-center justify-center">
+                        <i class="fas fa-check-circle text-green-600"></i>
+                    </div>
+                    <div>
+                        <h3 class="font-semibold text-green-800">Profile Link Sent</h3>
+                        <p class="text-green-700 text-sm">Check your email for your unique profile link</p>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
+            <div class="p-8">
+                {% if details_sent_by_email %}
+                <!-- Message-only view; QR and sensitive details are only in email or at the gate -->
+                <div class="bg-gradient-to-br from-blue-50 to-slate-50 rounded-2xl border-2 border-blue-200 p-8 mb-6">
+                    <div class="flex items-center justify-center w-16 h-16 bg-blue-100 rounded-2xl mx-auto mb-4">
+                        <i class="fas fa-envelope-open-text text-3xl text-blue-600"></i>
+                    </div>
+
+                    {% if is_pending %}
+                        <h3 class="text-xl font-bold text-gray-800 text-center mb-3">Your visit is pending approval</h3>
+                        <p class="text-gray-600 text-center mb-4">
+                            Your registration has been received and is waiting for host approval. You will receive an email with check-in instructions once it is approved.
+                        </p>
+                    {% elif is_rejected %}
+                        <h3 class="text-xl font-bold text-gray-800 text-center mb-3">Your visit has been rejected</h3>
+                        <p class="text-gray-600 text-center mb-4">
+                            This visit request was rejected by the host or administrator. Please contact your host or reception if you believe this is a mistake.
+                        </p>
+                    {% elif has_qr_email %}
+                        <h3 class="text-xl font-bold text-gray-800 text-center mb-3">Check-in details sent to your email</h3>
+                        <p class="text-gray-600 text-center mb-4">
+                            Your QR code, visit details, and gate instructions have been sent to your email. They are not shown on this page for security.
+                        </p>
+                        <p class="text-gray-600 text-center text-sm mb-4">
+                            Use the QR code and instructions from that email at the gate. Do not share this link or your email.
+                        </p>
+                    {% else %}
+                        <h3 class="text-xl font-bold text-gray-800 text-center mb-3">Registration complete</h3>
+                        <p class="text-gray-600 text-center mb-4">
+                            Your visit has been registered. If you do not receive a check-in email, please contact your host or the reception desk for gate instructions.
+                        </p>
+                    {% endif %}
+
+                    {% if email_status == 'skipped' %}
+                    <p class="text-red-600 text-center text-sm mb-4">
+                        Email delivery is not configured on this system. Please contact your host or reception to obtain your gate pass.
+                    </p>
+                    {% endif %}
+
+                    <a href="/" 
+                       class="flex items-center justify-center space-x-3 bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl w-full">
+                        <i class="fas fa-home"></i>
+                        <span>Return to Home</span>
+                    </a>
+                </div>
+                {% else %}
+                <!-- Visitor Profile Card -->
+                <div class="bg-white rounded-2xl shadow-lg border border-gray-200 p-6 mb-6">
+                    <div class="flex items-center space-x-4 mb-4">
+                        {% if visitor and visitor.basic_info and visitor.basic_info.photo_path %}
+                            {% set photo_path = visitor.basic_info.photo_path %}
+                            {% set filename = photo_path.replace('\\', '/').split('/')[-1] %}
+                            <img src="{{ url_for('uploaded_file', filename=filename) }}" 
+                                alt="{{ visitor.basic_info.name }}'s Photo" 
+                                class="w-16 h-16 object-cover rounded-xl shadow-md border-2 border-blue-200">
+                        {% else %}
+                            <div class="w-16 h-16 photo-placeholder rounded-xl flex items-center justify-center text-white">
+                                <i class="fas fa-user text-xl"></i>
+                            </div>
+                        {% endif %}
+                        
+                        <div>
+                            <h3 class="text-xl font-bold text-gray-800">
+                                {{ visitor.basic_info.name if visitor and visitor.basic_info else 'Visitor' }}
+                            </h3>
+                            <p class="text-gray-600 text-sm">
+                                {{ visitor.basic_info.contact if visitor and visitor.basic_info else 'N/A' }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Visit Details -->
+                {% if recent_visit %}
+                <div class="bg-gradient-to-br from-blue-50 to-slate-50 rounded-2xl border border-blue-200 p-6 mb-6">
+                    <div class="flex items-center space-x-3 mb-4">
+                        <div class="w-10 h-10 bg-blue-100 rounded-xl flex items-center justify-center">
+                            <i class="fas fa-calendar-alt text-blue-600"></i>
+                        </div>
+                        <h3 class="text-lg font-semibold text-blue-800">Visit Details</h3>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 gap-3">
+                        <div class="detail-card bg-white border-l-blue-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-blue-700 mb-1">Purpose</label>
+                            <span class="text-gray-800">{{ recent_visit.purpose }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-green-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-green-700 mb-1">Duration</label>
+                            <span class="text-gray-800">{{ recent_visit.duration }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-slate-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-slate-700 mb-1">Visit Date</label>
+                            <span class="text-gray-800">{{ recent_visit.visit_date }}</span>
+                        </div>
+                        
+                        <div class="detail-card bg-white border-l-orange-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-orange-700 mb-1">Status</label>
+                            <span class="status-badge status-{{ recent_visit.status.lower().replace(' ', '-') }}">
+                                {{ recent_visit.status }}
+                            </span>
+                        </div>
+                        
+                        {% if recent_visit.employee_name and recent_visit.employee_name != 'N/A' %}
+                        <div class="detail-card bg-white border-l-blue-500 p-3 rounded-lg">
+                            <label class="block text-sm font-semibold text-blue-700 mb-1">Employee</label>
+                            <span class="text-gray-800">{{ recent_visit.employee_name }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% else %}
+                <div class="bg-yellow-50 border border-yellow-200 rounded-2xl p-6 mb-6">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-exclamation-triangle text-yellow-600 text-xl"></i>
+                        <div>
+                            <h3 class="font-semibold text-yellow-800">No Visit Details Found</h3>
+                            <p class="text-yellow-700 text-sm">Please contact support for assistance</p>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Instructions -->
+                <div class="warning-box rounded-2xl p-4 mb-6">
+                    <div class="flex items-center space-x-3">
+                        <i class="fas fa-exclamation-triangle text-orange-600 text-xl"></i>
+                        <div>
+                            <h3 class="font-semibold text-orange-800">Important Notice</h3>
+                            <p class="text-orange-700">
+                                Please proceed to the physical access gate for QR scan and/or facial verification, using the instructions sent to your email or provided by reception.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <a href="/" 
+                   class="flex items-center justify-center space-x-3 bg-gray-500 hover:bg-gray-600 text-white px-6 py-4 rounded-xl font-semibold transition-all duration-200 shadow-lg hover:shadow-xl">
+                    <i class="fas fa-home"></i>
+                    <span>Return to Home</span>
+                </a>
+                {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="text-center mt-6">
+            <p class="text-gray-500 text-sm">
+                <i class="fas fa-shield-alt mr-2"></i>
+                Workplace Intelligence Platform with Hybrid Face–QR Authentication
+            </p>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const cards = document.querySelectorAll('.card-hover, .detail-card');
+            cards.forEach((card, index) => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                
+                setTimeout(() => {
+                    card.style.transition = 'all 0.5s ease';
+                    card.style.opacity = '1';
+                    card.style.transform = 'translateY(0)';
+                }, index * 100);
+            });
+        });
+    </script>
+</body>
+</html>

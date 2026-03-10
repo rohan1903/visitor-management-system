@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
 Seed Firebase Realtime Database with one employee and one meeting room
-so Register_App can show "Meeting with an employee" and meeting rooms.
+so registration app can show "Meeting with an employee" and meeting rooms.
 
 Run from project root AFTER creating the Realtime Database in Firebase Console:
   python seed_firebase_data.py
 
-Requires: Admin/firebase_credentials.json and FIREBASE_DATABASE_URL in Admin/.env
+Requires: admin/firebase_credentials.json and FIREBASE_DATABASE_URL in admin/.env
 """
 import os
 import sys
 
-# Load Admin .env for FIREBASE_DATABASE_URL
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "Admin"))
+# Load admin .env for FIREBASE_DATABASE_URL
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "admin"))
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(__file__), "Admin", ".env"))
+    load_dotenv(os.path.join(os.path.dirname(__file__), "admin", ".env"))
 except ImportError:
     pass
 
@@ -24,13 +24,13 @@ from firebase_admin import credentials, db
 
 def main():
     base = os.path.dirname(os.path.abspath(__file__))
-    cred_path = os.path.join(base, "Admin", "firebase_credentials.json")
+    cred_path = os.path.join(base, "admin", "firebase_credentials.json")
     if not os.path.exists(cred_path):
-        print("ERROR: Admin/firebase_credentials.json not found.")
+        print("ERROR: admin/firebase_credentials.json not found.")
         sys.exit(1)
     database_url = os.environ.get("FIREBASE_DATABASE_URL", "").strip().rstrip("/")
     if not database_url:
-        print("ERROR: FIREBASE_DATABASE_URL not set. Set it in Admin/.env")
+        print("ERROR: FIREBASE_DATABASE_URL not set. Set it in admin/.env")
         sys.exit(1)
     if not database_url.startswith("https://"):
         print("WARNING: FIREBASE_DATABASE_URL missing or invalid; using default US URL.")
@@ -61,7 +61,7 @@ def main():
     })
     print(f"Added meeting room: room1 (Conference Room A)")
 
-    print("Done. Restart Register_App if it is running, then refresh the registration page.")
+    print("Done. Restart the registration app if it is running, then refresh the registration page.")
 
 if __name__ == "__main__":
     try:

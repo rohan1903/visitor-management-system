@@ -1,14 +1,14 @@
 """
 Test script for the real-time occupancy feature.
-Run from the Admin directory with your venv activated:
-    cd Admin
+Run from the admin directory with your venv activated:
+    cd admin
     python tests/test_occupancy_api.py
 """
 import os
 import sys
 from pathlib import Path
 
-# Ensure we're in Admin and USE_MOCK_DATA so no Firebase needed
+# Ensure we're in admin and USE_MOCK_DATA so no Firebase needed
 _admin_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_admin_dir))
 os.chdir(_admin_dir)

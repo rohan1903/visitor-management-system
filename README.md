@@ -22,7 +22,7 @@ This work investigates whether a hybrid protocol — cross-verifying face and QR
 
 ## Contributions
 
-- **Hybrid Authentication Protocol (HFQVAP).** A hybrid face–QR authentication protocol with a five-state QR lifecycle (UNUSED, CHECKIN_USED, ASSUMED_SCANNED, CHECKOUT_USED, INVALIDATED), defined transition rules, and six operational invariants. The protocol is specified in [docs/Hybrid_Face_QR_Protocol.md](docs/Hybrid_Face_QR_Protocol.md), including state and sequence diagrams.
+- **Hybrid Authentication Protocol (HFQVAP).** A hybrid face–QR authentication protocol with a five-state QR lifecycle (UNUSED, CHECKIN_USED, ASSUMED_SCANNED, CHECKOUT_USED, INVALIDATED), defined transition rules, and six operational invariants.
 
 - **Workspace Intelligence Module.** Real-time building occupancy tracking, meeting room optimization with AI-powered suggestions, predictive visitor pattern analytics, and workspace utilization insights integrated directly into the visitor management workflow.
 
@@ -35,32 +35,26 @@ This work investigates whether a hybrid protocol — cross-verifying face and QR
 ## System Architecture
 
 ```
-├── docs/                  # All documentation (protocol, runbooks, checklist, testing)
-│   ├── README.md           # Docs index — start here
-│   ├── PROJECT_STRUCTURE.md  # Directory layout, config, redundant/archived files
-│   ├── Hybrid_Face_QR_Protocol.md
-│   ├── PROJECT_STATUS_AND_RUNBOOKS.md
-│   ├── FEATURES_CHECKLIST.md
-│   ├── TESTING_GUIDE.md
-│   └── ... (see docs/README.md for full list)
-├── Register_App/          # Visitor registration, QR issuance, host approval
-│   ├── app.py             # Flask (Port 5001)
-│   ├── chatbot.py         # Visitor assistant (Streamlit / Gemini)
+├── docs/
+│   ├── SETUP_GUIDE.md      # Full setup instructions
+│   └── TEST_PLAN.md        # End-to-end test plan with all edge cases
+├── registration/            # Visitor registration, QR issuance, host approval
+│   ├── app.py               # Flask (Port 5001)
 │   └── templates/
-├── Admin/                 # Dashboard, analytics, access-control list
-│   ├── app.py             # Flask (Port 5000)
+├── admin/                   # Dashboard, analytics, access-control list
+│   ├── app.py               # Flask (Port 5000)
 │   └── templates/
-└── Webcam/                # Gate — protocol engine (AUTH_MODE configurable)
-    ├── app.py             # Flask (Port 5002)
-    ├── qr_module.py       # QR generation, validation, state machine
+└── gate/                    # Gate — protocol engine (AUTH_MODE configurable)
+    ├── app.py               # Flask (Port 5002)
+    ├── qr_module.py         # QR generation, validation, state machine
     └── templates/
 ```
 
 | Component | Responsibility |
 |-----------|---------------|
-| Register_App | Visitor pre-registration, face embedding capture (dlib ResNet, 128-D), per-visit QR token generation (`secrets.token_urlsafe(32)`, JSON-encoded, visit-bound), host approval workflow, meeting room selection. |
-| Admin | Visitor and employee management, blacklist enforcement, feedback sentiment analysis, comprehensive visit analytics, **real-time occupancy dashboard**, **meeting room management**, **predictive analytics**, workspace intelligence insights. |
-| Webcam | Gate endpoint implementing the three protocol variants: face matching, QR parsing and state management, cross-verification, invalidation logic, structured event logging, and occupancy tracking. |
+| registration | Visitor pre-registration, face embedding capture (dlib ResNet, 128-D), per-visit QR token generation (`secrets.token_urlsafe(32)`, JSON-encoded, visit-bound), host approval workflow, meeting room selection. |
+| admin | Visitor and employee management, blacklist enforcement, feedback sentiment analysis, comprehensive visit analytics, **real-time occupancy dashboard**, **meeting room management**, **predictive analytics**, workspace intelligence insights. |
+| gate | Gate endpoint implementing the three protocol variants: face matching, QR parsing and state management, cross-verification, invalidation logic, structured event logging, and occupancy tracking. |
 
 Data is persisted in Firebase Realtime Database. All three components share the same database instance, enabling real-time synchronization of visitor data, occupancy metrics, and workspace analytics.
 
@@ -74,7 +68,7 @@ The gate supports three modes selected via `AUTH_MODE`:
 | Face-only | `face_only` | Face match only; QR data ignored. | Inactive: no state updates. |
 | QR-only | `qr_only` | Valid QR token only; face not required. | Partial: token validated (expiry, state) but no face cross-check. |
 
-The hybrid variant enforces six invariants: dual binding (face and QR must agree), single use per phase, mismatch invalidation, stolen-QR detection (face-only departure after QR arrival), blacklist enforcement, and token expiry. These are specified with state and sequence diagrams in the [protocol document](docs/Hybrid_Face_QR_Protocol.md).
+The hybrid variant enforces six invariants: dual binding (face and QR must agree), single use per phase, mismatch invalidation, stolen-QR detection (face-only departure after QR arrival), blacklist enforcement, and token expiry. These invariants are enforced at the gate layer.
 
 ## Workspace Intelligence Features
 
@@ -116,7 +110,7 @@ The hybrid variant enforces six invariants: dual binding (face and QR must agree
 
 ## Threat Model
 
-Six threat categories are analyzed. Full descriptions and per-variant handling are in the [protocol document](docs/Hybrid_Face_QR_Protocol.md).
+Six threat categories are analyzed:
 
 | Threat | Face-only | QR-only | Hybrid |
 |--------|-----------|---------|--------|
@@ -163,12 +157,12 @@ The hybrid variant addresses T1, T5, and T6 relative to the single-factor baseli
 ### Switching modes
 
 ```bash
-AUTH_MODE=hybrid    python Webcam/app.py   # default
-AUTH_MODE=face_only python Webcam/app.py   # baseline A
-AUTH_MODE=qr_only   python Webcam/app.py   # baseline B
+AUTH_MODE=hybrid    python gate/app.py   # default
+AUTH_MODE=face_only python gate/app.py   # baseline A
+AUTH_MODE=qr_only   python gate/app.py   # baseline B
 ```
 
-Alternatively, set `AUTH_MODE` in `Webcam/.env`. The active mode is validated and logged at startup.
+Alternatively, set `AUTH_MODE` in `gate/.env`. The active mode is validated and logged at startup.
 
 ### Log locations
 
@@ -184,7 +178,7 @@ Alternatively, set `AUTH_MODE` in `Webcam/.env`. The active mode is validated an
 
 - Python 3.8+
 - Firebase Realtime Database credentials (`firebase_credentials.json`)
-- Webcam or uploaded images for face registration
+- Camera or uploaded images for face registration
 - Pre-trained models (included): `shape_predictor_68_face_landmarks.dat`, `dlib_face_recognition_resnet_model_v1.dat`, `sentiment_analysis.pkl`, `genderage.onnx`
 
 ### Installation
@@ -192,18 +186,18 @@ Alternatively, set `AUTH_MODE` in `Webcam/.env`. The active mode is validated an
 ```bash
 python3 -m venv venv && source venv/bin/activate
 
-pip install -r Register_App/requirements.txt
-pip install -r Admin/requirements.txt
-pip install -r Webcam/requirements.txt
+pip install -r registration/requirements.txt
+pip install -r admin/requirements.txt
+pip install -r gate/requirements.txt
 ```
 
-dlib requires CMake and platform libraries (`sudo apt-get install cmake libopenblas-dev liblapack-dev` on Debian/Ubuntu). See [dlib.net](http://dlib.net/compile.html) or use `conda install -c conda-forge dlib`.
+dlib requires CMake and platform libraries (`sudo apt-get install cmake libopenblas-dev liblapack-dev` on Debian/Ubuntu). See [dlib.net](http://dlib.net/compile.html) or use `conda install -c conda-forge dlib`. Full setup instructions in [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
 
 ### Configuration
 
 Create `.env` in each component directory:
 
-**Register_App/.env:**
+**registration/.env:**
 ```
 SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
@@ -215,7 +209,7 @@ ADMIN_APP_URL=http://localhost:5000
 ```
 (ADMIN_APP_URL is used to fetch meeting rooms for the registration dropdown.)
 
-**Admin/.env:**
+**admin/.env:**
 ```
 SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
@@ -225,7 +219,7 @@ EMAIL_PASS=<app_password>
 REGISTRATION_APP_URL=http://localhost:5001
 ```
 
-**Webcam/.env:**
+**gate/.env:**
 ```
 SECRET_KEY=<secret>
 SMTP_SERVER=smtp.gmail.com
@@ -239,9 +233,9 @@ AUTH_MODE=hybrid
 ### Running
 
 ```bash
-cd Register_App && python app.py   # Port 5001
-cd Admin && python app.py          # Port 5000
-cd Webcam && python app.py         # Port 5002
+cd registration && python app.py   # Port 5001
+cd admin && python app.py          # Port 5000
+cd gate && python app.py           # Port 5002
 ```
 
 Place `firebase_credentials.json` in each component directory before starting.

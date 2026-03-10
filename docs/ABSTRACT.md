@@ -1,7 +1,0 @@
-# Abstract
-
-**Workplace Intelligence Platform with Hybrid Face–QR Authentication** is an open-source visitor management system that combines secure, multi-factor access control with comprehensive workspace analytics. The platform implements a Hybrid Face–QR Visitor Authentication Protocol (HFQVAP) that binds a per-visit QR token to biometric face verification through a five-state lifecycle with automatic invalidation on misuse. Unlike proprietary solutions (Envoy, Proxyclick), this system is fully self-hosted and research-focused, making it suitable for academic institutions and privacy-conscious organizations.
-
-The system addresses three limitations of traditional visitor management: (1) security gaps in single-factor authentication (QR-only or face-only), (2) proprietary constraints of commercial solutions, and (3) limited intelligence beyond access control. The hybrid protocol cross-verifies face and QR with a token state machine and invalidation rules, while simultaneously providing real-time building occupancy tracking, meeting room optimization, predictive visitor pattern analytics, and workspace utilization insights.
-
-The gate supports three configurable protocol variants—hybrid, face-only, and QR-only—under the same deployment, enabling direct comparison of security properties. All gate events are logged with protocol metadata for post-hoc analysis. The platform is built with Flask, Firebase, and dlib-based face recognition, and is documented for research, customization, and reproducible evaluation.
