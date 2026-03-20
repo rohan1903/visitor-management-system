@@ -2,6 +2,7 @@ import os
 import uuid
 import smtplib
 import random
+import copy
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
@@ -346,8 +347,38 @@ def trigger_invitation(email):
 # In-memory blacklist overlay for mock mode so add/remove persists across page loads
 _MOCK_BLACKLIST_STATE = {}
 
+# Base caches so mock data stays stable across page refreshes (per app run)
+_MOCK_VISITORS_BASE = None
+_MOCK_EMPLOYEES_CACHE = None
+
 def get_mock_visitors():
-    """Generate diverse mock visitor data covering normal and edge cases for analytics and occupancy."""
+    """Generate diverse mock visitor data covering normal and edge cases for analytics and occupancy.
+
+    Uses a fixed random seed and cached base snapshot so the same visitors are shown across
+    page refreshes during a demo, while still allowing blacklist changes to take effect.
+    """
+    global _MOCK_VISITORS_BASE
+
+    # Build the base snapshot once per app run
+    if _MOCK_VISITORS_BASE is not None:
+        # Work on a copy so blacklist updates can be applied per request
+        mock_visitors = copy.deepcopy(_MOCK_VISITORS_BASE)
+        # Apply persisted blacklist state (so mock add/remove works across reloads)
+        for vid, state in _MOCK_BLACKLIST_STATE.items():
+            if vid not in mock_visitors:
+                continue
+            bi = mock_visitors[vid].setdefault('basic_info', {})
+            bi['blacklisted'] = 'yes' if state.get('blacklisted') else 'no'
+            bi['blacklist_reason'] = state.get('reason', 'No reason provided')
+            bi['blacklisted_at'] = state.get('blacklisted_at', '')
+            mock_visitors[vid]['blacklisted'] = state.get('blacklisted', False)
+        return mock_visitors
+
+    # Pick employee names from the same mock employee generator used by `/employees`,
+    # so visitor↔employee association is consistent (and not just a rare string match).
+    mock_employees = get_mock_employees()
+    employee_names = [e.get("name", "") for e in mock_employees.values() if e.get("name")]
+
     random.seed(42)  # Deterministic mock data so blacklist overlay and counts are stable across requests
     mock_visitors = {}
     base = datetime.now()
@@ -425,7 +456,12 @@ def get_mock_visitors():
         return rec
 
     idx = 0
-    emp = lambda: f"{random.choice(employee_first)} {random.choice(employee_last)}"
+    # Use employee names that are guaranteed to exist in `/employees` mock mode.
+    if employee_names:
+        emp = lambda: random.choice(employee_names)
+    else:
+        # Fallback: should be rare, but keeps mock generation robust.
+        emp = lambda: f"{random.choice(employee_first)} {random.choice(employee_last)}"
     dept = lambda: random.choice(departments)
     name = lambda: f"{random.choice(first_names)} {random.choice(last_names)}"
     purpose = lambda: random.choice(purposes)
@@ -534,10 +570,22 @@ def get_mock_visitors():
         bi['blacklist_reason'] = state.get('reason', 'No reason provided')
         bi['blacklisted_at'] = state.get('blacklisted_at', '')
         mock_visitors[vid]['blacklisted'] = state.get('blacklisted', False)
+
+    # Cache the base snapshot for future calls
+    _MOCK_VISITORS_BASE = copy.deepcopy(mock_visitors)
     return mock_visitors
 
 def get_mock_employees():
-    """Generate diverse mock employee data"""
+    """Generate diverse mock employee data.
+
+    Uses a fixed random seed and cache so the same employees are shown across page refreshes.
+    """
+    global _MOCK_EMPLOYEES_CACHE
+
+    if _MOCK_EMPLOYEES_CACHE is not None:
+        return _MOCK_EMPLOYEES_CACHE
+
+    random.seed(123)
     departments = ['IT', 'HR', 'Sales', 'Marketing', 'Finance', 'Operations', 'Engineering', 'Legal', 'Security', 'Facilities']
     
     first_names = ['Sarah', 'Mike', 'Emily', 'David', 'Lisa', 'Jennifer', 'Chris', 'Amanda', 'Ryan', 'Jessica',

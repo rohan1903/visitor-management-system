@@ -863,6 +863,16 @@ def mock_auth():
     visitor_email = basic_info.get("contact")
     blacklisted = str(basic_info.get("blacklisted", "no")).lower()
     if blacklisted in ["yes", "true", "1"]:
+        # Keep mock auth behavior consistent with the real gate: invalidate QR when provided.
+        if qr_valid and qr_visitor_id and qr_visit_id:
+            invalidate_qr(qr_visitor_id, qr_visit_id, "Visitor is blacklisted", db_ref)
+            log_protocol_event(
+                "invalidation",
+                AUTH_MODE,
+                visitor_id=qr_visitor_id,
+                visit_id=qr_visit_id,
+                reason="blacklisted",
+            )
         return jsonify({"status": "denied", "message": f"Access denied. {visitor_name} is blacklisted.", "distance": 0.21})
 
     visits = visitor_data.get("visits", {})

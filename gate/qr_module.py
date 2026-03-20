@@ -42,7 +42,9 @@ QR_INVALIDATED = "INVALIDATED"
 
 # Allowed state transitions
 _VALID_TRANSITIONS = {
-    QR_UNUSED:           [QR_CHECKIN_USED, QR_ASSUMED_SCANNED],
+    # Allow invalidation even if a QR was never physically scanned.
+    # This supports "stolen QR" / wrong-person mismatch workflows.
+    QR_UNUSED:           [QR_CHECKIN_USED, QR_ASSUMED_SCANNED, QR_INVALIDATED],
     QR_CHECKIN_USED:     [QR_CHECKOUT_USED, QR_INVALIDATED],
     QR_ASSUMED_SCANNED:  [QR_CHECKOUT_USED, QR_INVALIDATED],
     QR_CHECKOUT_USED:    [],   # terminal
