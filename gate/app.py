@@ -42,7 +42,7 @@ load_dotenv()  # Also load from cwd
 # --- Configuration ---
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "gate_app_secret_key_123") 
-VERIFICATION_THRESHOLD = float(os.environ.get("VERIFICATION_THRESHOLD", "0.82"))  # 0.82 lenient; 0.78 stricter. Lower distance = better match.
+VERIFICATION_THRESHOLD = float(os.environ.get("VERIFICATION_THRESHOLD", "0.6"))  # dlib recommended ~0.6; lower = stricter. Was 0.82 which is too permissive.
 CHECKIN_COOLDOWN_SECONDS = int(os.environ.get("CHECKIN_COOLDOWN_SECONDS", "90"))  # Min seconds between check-in and checkout (prevents accidental double-scan)
 COMPANY_IP = os.environ.get("COMPANY_IP")
 
@@ -1154,15 +1154,21 @@ def checkin_verify_and_log():
                                    message="QR scanned but face matched no registered visitor")
                 log_qr_scan(qr_visitor_id, qr_visit_id, "rejected", db_ref,
                             reason="face_no_match", ip=client_ip)
-            deny_msg = "No match found. You are not registered in the system."
-            if not has_qr:
-                deny_msg += " If you registered without using the camera, re-register with your face or use your QR code."
-            # If best distance is very high (>2), stored embedding was likely fake (registration had no face)
             if best_distance < 999.0 and best_distance > 2.0:
-                deny_msg = "Face not recognized. Your face may not have been saved correctly when you registered—please re-register with your face clearly visible in the photo, then try again."
-            # Always include distance when available (helps diagnose: threshold is 0.78, lower = better match)
-            if best_distance < 999.0:
-                deny_msg += f" (Distance: {best_distance:.2f} — threshold is {THRESHOLD:.2f}. Try: same lighting as registration, face camera directly, remove glasses if you wore them during registration, or re-register.)"
+                deny_msg = (
+                    "Face not recognized. Your face may not have been captured correctly "
+                    "during registration. Please re-register with your face clearly visible."
+                )
+            else:
+                deny_msg = (
+                    "Face not recognized. Please ensure you are facing the camera directly "
+                    "with good lighting, similar to when you registered."
+                )
+            if not has_qr:
+                deny_msg += " If you haven't registered yet, please register first."
+            logger.info(
+                f"Face denied: best_distance={best_distance:.4f}, threshold={THRESHOLD:.2f}"
+            )
             return jsonify({
                 "status": "denied",
                 "message": deny_msg,
@@ -1189,9 +1195,25 @@ def checkin_verify_and_log():
             })
 
         if is_twin and has_qr:
-            # QR resolves the twin — use QR's visitor_id as ground truth
-            face_visitor_id = qr_visitor_id
-            logger.info(f"Twin resolved via QR — using visitor {qr_visitor_id}")
+            # Twin ambiguity detected with QR present.
+            # SECURITY RULE: never override face_visitor_id with qr_visitor_id.
+            # The geometric best face match is the source of truth for identity;
+            # QR confirms it (step D below) but never replaces it.
+            twin_candidate_ids = {m["visitor_id"] for m in twin_matches}
+            if qr_visitor_id not in twin_candidate_ids:
+                logger.warning(
+                    f"Twin ambiguity among {twin_candidate_ids} but QR is for {qr_visitor_id}; "
+                    "face/QR mismatch will be caught in step D."
+                )
+            elif face_visitor_id != qr_visitor_id:
+                logger.warning(
+                    f"Twin ambiguity: geometric best is {face_visitor_id} but QR is for "
+                    f"{qr_visitor_id}; refusing QR override — step D will deny."
+                )
+            else:
+                logger.info(
+                    f"Twin ambiguity resolved: geometric best and QR both identify {qr_visitor_id}."
+                )
 
         # ──────────────────────────────────────
         # STEP D: Cross-verify QR ↔ Face
@@ -1293,9 +1315,9 @@ def checkin_verify_and_log():
                      f"status={visit_status}, auth={auth_mode}, dist={min_distance:.4f}")
 
         # ──────────────────────────────────────
-        # Require QR + face when explicit action is requested
-        if requested_action in ("checkin", "checkout") and AUTH_MODE == "hybrid" and not has_qr:
-            msg = "Please scan your QR code and show your face to check in." if requested_action == "checkin" else "Please scan your QR code and show your face to check out."
+        # Hybrid mode always requires QR + face (regardless of requested action)
+        if AUTH_MODE == "hybrid" and not has_qr:
+            msg = "Please scan your QR code and show your face to proceed."
             return jsonify({"status": "denied", "message": msg, "distance": min_distance})
 
         # Enforce requested action (checkin vs checkout)

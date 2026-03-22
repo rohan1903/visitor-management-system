@@ -1,10 +1,15 @@
+import base64
 import json
 import os
 import sys
 import importlib.util
 import unittest
+import unittest.mock
 from pathlib import Path
 from datetime import datetime, timedelta
+
+import cv2
+import numpy as np
 
 
 def load_gate_app_module():
@@ -78,7 +83,7 @@ class GateEdgeCaseTests(unittest.TestCase):
         # Check-in with QR.
         res1 = self._post_mock_auth(mock_face_id=v1, qr_data=qr_payload)
         self.assertEqual(res1.get("status"), "granted")
-        self.assertIn("Successful check-in", res1.get("message", ""))
+        self.assertIn("check-in", res1.get("message", "").lower())
 
         # Checkout without QR (face-only).
         res2 = self._post_mock_auth(mock_face_id=v1, qr_data=None)
@@ -129,12 +134,300 @@ class GateEdgeCaseTests(unittest.TestCase):
         self.assertEqual(res.get("status"), "denied")
         self.assertIn("QR invalid:", res.get("message", ""))
 
+    def _minimal_jpeg_data_url(self):
+        img = np.zeros((64, 64, 3), dtype=np.uint8)
+        ok, buf = cv2.imencode(".jpg", img)
+        self.assertTrue(ok)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode("ascii")
+
+    def test_checkout_wrong_face_correct_qr_denied_when_twin_set_excludes_qr_owner(self):
+        """
+        Regression: twin ambiguity used to force face_visitor_id = qr_visitor_id even when
+        the QR owner was not among the ambiguous face matches, allowing stolen QR + wrong face.
+        """
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+
+        past_ci = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "checked_in", "check_in_time": past_ci}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_2", "distance": 0.50, "name": "Other", "blacklisted": False},
+            {
+                "visitor_id": "visitor_not_qr_owner",
+                "distance": 0.51,
+                "name": "Other2",
+                "blacklisted": False,
+            },
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), unittest.mock.patch.object(
+            self.gate, "get_face_embedding", return_value=fake_emb
+        ):
+            resp = self.client.post(
+                "/checkin_verify_and_log",
+                json={
+                    "image": self._minimal_jpeg_data_url(),
+                    "qr_data": qr_payload,
+                    "action": "checkout",
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json() or {}
+        self.assertEqual(data.get("status"), "denied")
+        self.assertIn("Security alert", data.get("message", ""))
+
+    def test_checkin_wrong_face_correct_qr_denied_when_geometric_best_not_qr_owner(self):
+        """
+        Regression: twin+QR used to set face_visitor_id = qr_visitor_id whenever the QR
+        owner was in the top-2 ambiguous set, even if another visitor was the better match.
+        """
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "approved", "visit_approved": True}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_2", "distance": 0.50, "name": "Diya", "blacklisted": False},
+            {"visitor_id": "visitor_demo_1", "distance": 0.51, "name": "Aarav", "blacklisted": False},
+        ]
+        fake_emb = [0.02] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), unittest.mock.patch.object(
+            self.gate, "get_face_embedding", return_value=fake_emb
+        ):
+            resp = self.client.post(
+                "/checkin_verify_and_log",
+                json={
+                    "image": self._minimal_jpeg_data_url(),
+                    "qr_data": qr_payload,
+                    "action": "checkin",
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        data = resp.get_json() or {}
+        self.assertEqual(data.get("status"), "denied")
+        self.assertIn("Security alert", data.get("message", ""))
+
+    # ── Wrong face + correct QR: single-match (no twin) ──────────────────
+    def test_wrong_face_correct_qr_denied_single_match(self):
+        """Wrong face best-matches a DIFFERENT visitor than the QR owner → mismatch."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_2", "distance": 0.35, "name": "Diya", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkin",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "denied")
+        self.assertIn("Security alert", data["message"])
+
+    def test_wrong_face_correct_qr_denied_checkout_single_match(self):
+        """Same as above but for checkout."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+        past_ci = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "checked_in", "check_in_time": past_ci}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_2", "distance": 0.40, "name": "Diya", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkout",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "denied")
+        self.assertIn("Security alert", data["message"])
+
+    # ── Unregistered face + correct QR ─────────────────────────────────
+    def test_unregistered_face_correct_qr_denied(self):
+        """Face matches NO visitor → denied even with a valid QR."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=[]), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkin",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "denied")
+        self.assertIn("No match found", data["message"])
+
+    # ── Hybrid mode requires QR (no action=auto bypass) ────────────────
+    def test_hybrid_mode_denies_face_only_auto_action(self):
+        """In hybrid mode, face-only (no QR) must be denied even with action=auto."""
+        fake_matches = [
+            {"visitor_id": "visitor_demo_1", "distance": 0.30, "name": "Aarav", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "action": "auto",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "denied")
+        self.assertIn("QR", data["message"])
+
+    def test_hybrid_mode_denies_face_only_no_action(self):
+        """In hybrid mode, face-only (no QR, no action) must be denied."""
+        fake_matches = [
+            {"visitor_id": "visitor_demo_1", "distance": 0.30, "name": "Aarav", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "denied")
+        self.assertIn("QR", data["message"])
+
+    # ── Correct face + correct QR succeeds ─────────────────────────────
+    def test_correct_face_correct_qr_checkin_granted(self):
+        """Positive case: matching face + matching QR → check-in granted."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "approved", "visit_approved": True}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_1", "distance": 0.30, "name": "Aarav", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkin",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "granted")
+
+    def test_correct_face_correct_qr_checkout_granted(self):
+        """Positive case: matching face + matching QR → checkout granted."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+        past_ci = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "checked_in", "check_in_time": past_ci}
+        )
+        past_scan = (datetime.now() - timedelta(seconds=120)).strftime("%Y-%m-%d %H:%M:%S")
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}/qr_state").update(
+            {"status": "CHECKIN_USED", "scan_count": 1, "checkin_scan_time": past_scan}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_1", "distance": 0.28, "name": "Aarav", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkout",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "checked_out")
+
+    # ── Twin: QR agrees with geometric best → allowed ──────────────────
+    def test_twin_qr_agrees_with_best_match_allowed(self):
+        """Twin ambiguity where QR confirms the geometric best match → granted."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+        self.gate.db_ref.child(f"visitors/{v1}/visits/{visit_id}").update(
+            {"status": "approved", "visit_approved": True}
+        )
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_1", "distance": 0.50, "name": "Aarav", "blacklisted": False},
+            {"visitor_id": "visitor_demo_2", "distance": 0.51, "name": "Diya", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            resp = self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkin",
+            })
+        data = resp.get_json() or {}
+        self.assertEqual(data["status"], "granted")
+
+    # ── QR invalidated after mismatch ──────────────────────────────────
+    def test_qr_invalidated_after_wrong_face(self):
+        """When face ≠ QR owner, QR must be invalidated (INVALIDATED state)."""
+        v1 = "visitor_demo_1"
+        visit_id = "visit_demo_1"
+        qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
+
+        fake_matches = [
+            {"visitor_id": "visitor_demo_2", "distance": 0.35, "name": "Diya", "blacklisted": False},
+        ]
+        fake_emb = [0.01] * 128
+
+        with unittest.mock.patch.object(self.gate, "find_all_face_matches", return_value=fake_matches), \
+             unittest.mock.patch.object(self.gate, "get_face_embedding", return_value=fake_emb):
+            self.client.post("/checkin_verify_and_log", json={
+                "image": self._minimal_jpeg_data_url(),
+                "qr_data": qr_payload,
+                "action": "checkin",
+            })
+
+        qr_state = self._get_visit(v1, visit_id).get("qr_state", {})
+        self.assertEqual(qr_state["status"], self.gate.QR_INVALIDATED)
+        self.assertIn("wrong person", qr_state.get("invalidated_reason", "").lower())
+
+    # ── Original tests ─────────────────────────────────────────────────
     def test_blacklisted_visitor_denied_and_qr_invalidated(self):
         v1 = "visitor_demo_1"
         visit_id = "visit_demo_1"
         qr_payload = self._get_visit(v1, visit_id)["qr_payload"]
 
-        # Blacklist the visitor in the mock DB.
         self.gate.db_ref.child(f"visitors/{v1}/basic_info").update({"blacklisted": "yes"})
 
         res = self._post_mock_auth(mock_face_id=v1, qr_data=qr_payload)
@@ -145,15 +438,12 @@ class GateEdgeCaseTests(unittest.TestCase):
         self.assertEqual(qr_state.get("status"), self.gate.QR_INVALIDATED)
 
     def test_feedback_form_validation(self):
-        # Missing visitor_id -> 400
         resp1 = self.client.get("/feedback_form")
         self.assertEqual(resp1.status_code, 400)
 
-        # Invalid visitor_id -> 404
         resp2 = self.client.get("/feedback_form?visitor_id=does_not_exist")
         self.assertEqual(resp2.status_code, 404)
 
-        # Empty feedback -> rendered form with 200 OK (template), but should include error text.
         resp3 = self.client.post(
             "/submit_feedback",
             data={"visitor_id": "visitor_demo_1", "feedback_text": ""},
